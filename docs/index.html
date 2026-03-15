@@ -222,7 +222,8 @@
   <main>
     <div class="controls">
       <select id="year"></select>
-      <select id="session"></select>
+      <select id="event"><option>Select year first</option></select>
+      <select id="session"><option>Select event first</option></select>
       <button id="load">Load</button>
     </div>
 
@@ -258,6 +259,7 @@
 
     // --- Init ---
     const yearEl = document.getElementById("year");
+    const eventEl = document.getElementById("event");
     const sessionEl = document.getElementById("session");
     const loadBtn = document.getElementById("load");
     const loadingEl = document.getElementById("loading");
@@ -270,23 +272,47 @@
     let sessions = [];
 
     yearEl.addEventListener("change", loadSessions);
+    eventEl.addEventListener("change", populateSessions);
 
     async function loadSessions() {
-      sessionEl.innerHTML = '<option>Loading...</option>';
+      eventEl.innerHTML = '<option>Loading...</option>';
+      sessionEl.innerHTML = '<option>Select event first</option>';
       try {
         sessions = await f1("sessions", { year: yearEl.value });
-        // Show races and qualifying, most recent first
-        const interesting = sessions
-          .filter(s => ["Race", "Qualifying", "Sprint"].includes(s.session_type));
-        sessionEl.innerHTML = "";
-        for (const s of interesting) {
-          sessionEl.add(new Option(
-            `${s.country_name} — ${s.session_type}`,
-            s.session_key
-          ));
+        // Group finished sessions by meeting (event)
+        const now = new Date();
+        const finished = sessions.filter(s => s.date_end && new Date(s.date_end) < now);
+        const events = new Map();
+        for (const s of finished) {
+          if (!events.has(s.meeting_key)) {
+            events.set(s.meeting_key, {
+              meeting_key: s.meeting_key,
+              name: `${s.country_name} — ${s.circuit_short_name || ""}`,
+              sessions: [],
+            });
+          }
+          events.get(s.meeting_key).sessions.push(s);
+        }
+        eventEl.innerHTML = '<option value="">— Select event —</option>';
+        for (const [key, evt] of events) {
+          eventEl.add(new Option(evt.name, key));
         }
       } catch (e) {
-        sessionEl.innerHTML = `<option>Error loading sessions</option>`;
+        eventEl.innerHTML = `<option>Error loading events</option>`;
+      }
+    }
+
+    function populateSessions() {
+      const mk = eventEl.value;
+      sessionEl.innerHTML = "";
+      if (!mk) { sessionEl.innerHTML = '<option>Select event first</option>'; return; }
+      const evt = sessions.filter(s => String(s.meeting_key) === mk);
+      const now = new Date();
+      const finished = evt.filter(s => s.date_end && new Date(s.date_end) < now);
+      // Sort by date so sessions appear in weekend order
+      finished.sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
+      for (const s of finished) {
+        sessionEl.add(new Option(s.session_name || s.session_type, s.session_key));
       }
     }
 
