@@ -452,8 +452,7 @@
               </div>`;
 
               for (const lap of stintLaps) {
-                const pct = maxTime === minTime ? 1 : 1 - (lap.lap_duration - minTime) / (maxTime - minTime);
-                const width = Math.max(15, pct * 100);
+                const width = maxTime === minTime ? 100 : Math.max(15, (lap.lap_duration / maxTime) * 100);
                 html += `<div class="lap-bar-row">
                   <span class="lap-bar-label">${lap.lap_number}</span>
                   <div class="lap-bar-track"><div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div></div>
@@ -464,8 +463,7 @@
           } else {
             // Fallback if no stint data
             for (const lap of laps) {
-              const pct = maxTime === minTime ? 1 : 1 - (lap.lap_duration - minTime) / (maxTime - minTime);
-              const width = Math.max(15, pct * 100);
+              const width = maxTime === minTime ? 100 : Math.max(15, (lap.lap_duration / maxTime) * 100);
               html += `<div class="lap-bar-row">
                 <span class="lap-bar-label">${lap.lap_number}</span>
                 <div class="lap-bar-track"><div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div></div>
