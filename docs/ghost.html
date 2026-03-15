@@ -31,38 +31,106 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
       height: 100vh;
-      gap: 1.5rem;
-      padding: 2rem;
-      text-align: center;
+      padding: 2rem 1.5rem;
+      overflow-y: auto;
     }
 
-    #landing h1 { font-size: 1.5rem; }
-    #landing p { color: var(--muted); max-width: 28rem; font-size: 0.9rem; }
+    .landing-header {
+      text-align: center;
+      margin-bottom: 1.5rem;
+      flex-shrink: 0;
+    }
+
+    .landing-header h1 { font-size: 1.4rem; margin-bottom: 0.4rem; }
+    .landing-header p { color: var(--muted); max-width: 32rem; font-size: 0.85rem; }
+
+    .filter-bar {
+      width: 100%;
+      max-width: 44rem;
+      margin-bottom: 1.25rem;
+      flex-shrink: 0;
+    }
+
+    .filter-input {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.85rem;
+      outline: none;
+    }
+
+    .filter-input::placeholder { color: var(--muted); }
+    .filter-input:focus { border-color: var(--accent); }
 
     #file-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
       width: 100%;
-      max-width: 24rem;
+      max-width: 44rem;
+    }
+
+    .year-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .year-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+      padding-left: 0.25rem;
+    }
+
+    .year-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 0.5rem;
     }
 
     .file-btn {
       background: var(--card);
       border: 1px solid var(--border);
       color: var(--text);
-      padding: 0.75rem 1rem;
+      padding: 0.6rem 0.75rem;
       border-radius: 8px;
       cursor: pointer;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       text-align: left;
-      transition: border-color 0.15s;
+      transition: border-color 0.15s, background 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
     }
 
-    .file-btn:hover { border-color: var(--accent); }
-    .file-btn .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
+    .file-btn:hover { border-color: var(--accent); background: #1c2129; }
+
+    .file-btn .color-pip {
+      width: 4px;
+      border-radius: 2px;
+      align-self: stretch;
+      flex-shrink: 0;
+    }
+
+    .file-btn .btn-content { flex: 1; min-width: 0; }
+
+    .file-btn .btn-title {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .file-btn .meta { color: var(--muted); font-size: 0.7rem; margin-top: 0.15rem; }
+
+    .no-results {
+      color: var(--muted);
+      font-size: 0.85rem;
+      text-align: center;
+      padding: 2rem 0;
+    }
 
     /* --- Main visualisation layout --- */
     #app {
@@ -327,12 +395,17 @@
 
 <!-- Landing: pick a comparison file -->
 <div id="landing">
-  <h1>Ghost Car Comparison</h1>
-  <p>Compare two drivers' fastest laps side-by-side. Watch how gaps develop around the circuit with synchronised telemetry.</p>
+  <div class="landing-header">
+    <h1>Ghost Car Comparison</h1>
+    <p>Compare two drivers' fastest laps side-by-side. Watch how gaps develop around the circuit with synchronised telemetry.</p>
+  </div>
+  <div class="filter-bar" id="filterBar" style="display:none">
+    <input class="filter-input" id="filterInput" type="text" placeholder="Filter by driver, circuit, year...">
+  </div>
   <div id="file-list">
     <p class="loading-msg">Loading available comparisons...</p>
   </div>
-  <p style="font-size:0.75rem;color:var(--muted);margin-top:1rem">
+  <p style="font-size:0.75rem;color:var(--muted);margin-top:1rem;flex-shrink:0">
     <a href="index.html" style="color:var(--accent)">Back to dashboard</a>
   </p>
 </div>
@@ -395,32 +468,103 @@
 
   // ---- Data loading ----
 
-  // Discover available JSON files from a known manifest or hardcoded list
+  let manifest = [];
+
   async function loadFileList() {
     const listEl = document.getElementById("file-list");
     try {
       const res = await fetch("data/ghost/manifest.json");
       if (!res.ok) throw new Error("No manifest");
-      const manifest = await res.json();
+      manifest = await res.json();
 
       if (!manifest.length) {
         listEl.innerHTML = '<p class="loading-msg">No comparisons generated yet. Run the generate script first.</p>';
         return;
       }
 
-      listEl.innerHTML = "";
-      for (const entry of manifest) {
-        const btn = document.createElement("button");
-        btn.className = "file-btn";
-        btn.innerHTML = `
-          <div>${entry.label || entry.file}</div>
-          <div class="meta">${entry.meta || ""}</div>
-        `;
-        btn.addEventListener("click", () => loadComparison(entry.file));
-        listEl.appendChild(btn);
+      // Show filter bar when there are multiple entries
+      if (manifest.length > 1) {
+        document.getElementById("filterBar").style.display = "";
+        document.getElementById("filterInput").addEventListener("input", (e) => {
+          renderFileList(e.target.value.trim().toLowerCase());
+        });
       }
+
+      renderFileList("");
     } catch {
       listEl.innerHTML = '<p class="loading-msg">No comparisons found.<br>Run <code>python scripts/generate_ghost_data.py</code> to create one.</p>';
+    }
+  }
+
+  function renderFileList(filter) {
+    const listEl = document.getElementById("file-list");
+
+    // Filter entries
+    const filtered = filter
+      ? manifest.filter(e => {
+          const text = `${e.label} ${e.meta} ${e.file}`.toLowerCase();
+          return filter.split(/\s+/).every(word => text.includes(word));
+        })
+      : manifest;
+
+    if (!filtered.length) {
+      listEl.innerHTML = '<p class="no-results">No matches found.</p>';
+      return;
+    }
+
+    // Group by year (extract from label like "2024 Bahrain...")
+    const groups = {};
+    for (const entry of filtered) {
+      const yearMatch = entry.label && entry.label.match(/^(\d{4})/);
+      const year = yearMatch ? yearMatch[1] : "Other";
+      if (!groups[year]) groups[year] = [];
+      groups[year].push(entry);
+    }
+
+    // Sort years descending (most recent first)
+    const sortedYears = Object.keys(groups).sort((a, b) => b.localeCompare(a));
+
+    listEl.innerHTML = "";
+    for (const year of sortedYears) {
+      const group = document.createElement("div");
+      group.className = "year-group";
+
+      // Only show year label if multiple years
+      if (sortedYears.length > 1 || year !== "Other") {
+        const label = document.createElement("div");
+        label.className = "year-label";
+        label.textContent = year === "Other" ? "Comparisons" : `${year} Season`;
+        group.appendChild(label);
+      }
+
+      const grid = document.createElement("div");
+      grid.className = "year-grid";
+
+      for (const entry of groups[year]) {
+        const btn = document.createElement("button");
+        btn.className = "file-btn";
+
+        // Extract driver color from meta or use accent
+        const pipColor = "var(--accent)";
+
+        // Show event + session + drivers as the title (strip the year prefix)
+        const title = entry.label
+          ? entry.label.replace(/^\d{4}\s*/, "")
+          : entry.file;
+
+        btn.innerHTML = `
+          <div class="color-pip" style="background:${pipColor}"></div>
+          <div class="btn-content">
+            <div class="btn-title">${title}</div>
+            <div class="meta">${entry.meta || ""}</div>
+          </div>
+        `;
+        btn.addEventListener("click", () => loadComparison(entry.file));
+        grid.appendChild(btn);
+      }
+
+      group.appendChild(grid);
+      listEl.appendChild(group);
     }
   }
 
