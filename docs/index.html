@@ -227,8 +227,7 @@
         sessions = await f1("sessions", { year: yearEl.value });
         // Show races and qualifying, most recent first
         const interesting = sessions
-          .filter(s => ["Race", "Qualifying", "Sprint"].includes(s.session_type))
-          .reverse();
+          .filter(s => ["Race", "Qualifying", "Sprint"].includes(s.session_type));
         sessionEl.innerHTML = "";
         for (const s of interesting) {
           sessionEl.add(new Option(
@@ -257,12 +256,10 @@
       if (!sk) return;
       loadingEl.style.display = "block";
       try {
-        await Promise.all([
-          loadDrivers(sk),
-          loadLaps(sk),
-          loadPositions(sk),
-          loadWeather(sk),
-        ]);
+        await loadDrivers(sk);
+        await loadLaps(sk);
+        await loadPositions(sk);
+        await loadWeather(sk);
       } catch (e) {
         console.error(e);
       }
