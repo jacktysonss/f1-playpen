@@ -5,16 +5,64 @@
  *
  * Free tier: no auth required, 3 req/s, 30 req/min
  * All historical data since 2023 season
+ *
+ * Set OPENF1_OFFLINE=1 to use bundled sample data (for offline/sandbox use).
  */
 
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
 const BASE_URL = "https://api.openf1.org/v1";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = join(__dirname, "..", "data");
+
+const SAMPLE_FILES = {
+  sessions: "sample-sessions.json",
+  drivers: "sample-drivers.json",
+  laps: "sample-laps.json",
+  position: "sample-positions.json",
+};
+
+function isOffline() {
+  return process.env.OPENF1_OFFLINE === "1";
+}
+
+/** Simple client-side filter: match all params as equality checks against data. */
+function filterData(data, params) {
+  if (Object.keys(params).length === 0) return data;
+  return data.filter((item) =>
+    Object.entries(params).every(([key, value]) => {
+      // coerce numbers for comparison
+      const itemVal = item[key];
+      if (itemVal === undefined) return false;
+      return String(itemVal) === String(value);
+    })
+  );
+}
+
+async function fetchSampleData(endpoint, params) {
+  const filename = SAMPLE_FILES[endpoint];
+  if (!filename) {
+    console.warn(`[offline] No sample data for "${endpoint}", returning []`);
+    return [];
+  }
+  const raw = await readFile(join(DATA_DIR, filename), "utf-8");
+  const data = JSON.parse(raw);
+  return filterData(data, params);
+}
 
 /**
  * Generic fetch wrapper for OpenF1 endpoints.
  * Accepts an endpoint name and optional query params object.
  * Supports comparison operators in param values (e.g. { speed: ">=315" }).
+ * Falls back to sample data when OPENF1_OFFLINE=1.
  */
 export async function fetchOpenF1(endpoint, params = {}) {
+  if (isOffline()) {
+    return fetchSampleData(endpoint, params);
+  }
+
   const url = new URL(`${BASE_URL}/${endpoint}`);
 
   for (const [key, value] of Object.entries(params)) {

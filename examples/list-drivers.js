@@ -4,9 +4,9 @@
  */
 import { getSessions, getDrivers } from "../src/openf1.js";
 
-// Get the most recent race session
+// Get the most recent race session (use first available for offline compatibility)
 const sessions = await getSessions({ year: 2024, session_type: "Race" });
-const latestSession = sessions[sessions.length - 1];
+const latestSession = sessions[0];
 
 console.log(`\n🏁 ${latestSession.session_name} — ${latestSession.meeting_name}`);
 console.log(`   ${latestSession.country_name} | ${latestSession.date_start}\n`);

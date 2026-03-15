@@ -1,0 +1,24 @@
+[
+  {
+    "session_key": 9472,
+    "session_name": "Race",
+    "session_type": "Race",
+    "meeting_name": "Bahrain Grand Prix",
+    "country_name": "Bahrain",
+    "circuit_short_name": "Sakhir",
+    "date_start": "2024-03-02T15:00:00",
+    "date_end": "2024-03-02T17:00:00",
+    "year": 2024
+  },
+  {
+    "session_key": 9480,
+    "session_name": "Race",
+    "session_type": "Race",
+    "meeting_name": "Saudi Arabian Grand Prix",
+    "country_name": "Saudi Arabia",
+    "circuit_short_name": "Jeddah",
+    "date_start": "2024-03-09T17:00:00",
+    "date_end": "2024-03-09T19:00:00",
+    "year": 2024
+  }
+]
