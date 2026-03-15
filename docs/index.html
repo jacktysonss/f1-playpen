@@ -103,9 +103,20 @@
       padding: 0.5rem 0;
       border-bottom: 1px solid rgba(255,255,255,0.05);
       gap: 0.75rem;
+      cursor: pointer;
     }
 
     .driver-row:last-child { border-bottom: none; }
+
+    .driver-laps {
+      display: none;
+      padding: 0.5rem 0 0.75rem 2.75rem;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .driver-laps.open { display: block; }
+
+    .driver-laps-loading { color: var(--muted); font-size: 0.8rem; font-style: italic; }
 
     .pos {
       font-weight: 700;
@@ -233,13 +244,11 @@
     <div id="results" style="display:none">
       <div class="tabs">
         <button class="tab active" data-tab="drivers">Drivers</button>
-        <button class="tab" data-tab="laps">Lap Times</button>
         <button class="tab" data-tab="positions">Positions</button>
         <button class="tab" data-tab="weather">Weather</button>
       </div>
 
       <div id="drivers" class="panel active"></div>
-      <div id="laps" class="panel"></div>
       <div id="positions" class="panel"></div>
       <div id="weather" class="panel"></div>
     </div>
@@ -343,8 +352,7 @@
         let positions = [];
         try { positions = await f1("position", { session_key: sk }); } catch {}
 
-        renderDrivers(drivers, positions);
-        await renderLaps(sk, drivers);
+        renderDrivers(sk, drivers, positions);
         renderPositions(drivers, positions);
         await loadWeather(sk);
       } catch (e) {
@@ -355,9 +363,18 @@
       }
     });
 
-    function renderDrivers(drivers, positions) {
+    // State shared between renderDrivers and expandDriver
+    let _sessionKey = null;
+    let _stints = null;
+    let _driverColours = null;
+
+    function renderDrivers(sk, drivers, positions) {
       const panel = document.getElementById("drivers");
       if (!drivers.length) { panel.innerHTML = '<p class="status">No driver data</p>'; return; }
+
+      _sessionKey = sk;
+      _stints = null; // reset; fetched lazily on first expand
+      _driverColours = new Map(drivers.map(d => [d.driver_number, d.team_colour || "666"]));
 
       const lastPos = new Map();
       for (const p of positions) lastPos.set(p.driver_number, p.position);
@@ -366,8 +383,8 @@
         (lastPos.get(a.driver_number) ?? 99) - (lastPos.get(b.driver_number) ?? 99)
       );
 
-      panel.innerHTML = '<div class="card">' + sorted.map(d => `
-        <div class="driver-row">
+      panel.innerHTML = '<div class="card">' + sorted.map((d, i) => `
+        <div class="driver-row" data-driver="${d.driver_number}" data-idx="${i}">
           <span class="pos">${lastPos.get(d.driver_number) ?? "-"}</span>
           <span class="team-dot" style="background:#${d.team_colour || '666'}"></span>
           <div class="driver-info">
@@ -376,7 +393,101 @@
           </div>
           <span class="lap-time">#${d.driver_number}</span>
         </div>
+        <div class="driver-laps" id="laps-${d.driver_number}"></div>
       `).join("") + '</div>';
+
+      // Click to expand/collapse
+      panel.querySelectorAll(".driver-row").forEach(row => {
+        row.addEventListener("click", () => expandDriver(row.dataset.driver));
+      });
+    }
+
+    async function expandDriver(driverNum) {
+      const el = document.getElementById(`laps-${driverNum}`);
+      if (el.classList.contains("open")) {
+        el.classList.remove("open");
+        return;
+      }
+
+      // Collapse any other open panel
+      document.querySelectorAll(".driver-laps.open").forEach(d => d.classList.remove("open"));
+
+      // If already loaded, just re-open
+      if (el.dataset.loaded) {
+        el.classList.add("open");
+        return;
+      }
+
+      el.innerHTML = '<span class="driver-laps-loading">Loading lap times...</span>';
+      el.classList.add("open");
+
+      try {
+        // Fetch stints once (shared across all drivers)
+        if (!_stints) _stints = await f1("stints", { session_key: _sessionKey });
+
+        const lapsRaw = await f1("laps", { session_key: _sessionKey, driver_number: driverNum });
+        const times = lapsRaw.map(l => l.lap_duration).filter(Boolean);
+        if (!times.length) { el.innerHTML = '<span class="driver-laps-loading">No lap data</span>'; el.dataset.loaded = "1"; return; }
+
+        // Filter outliers: 115% of this driver's fastest lap
+        const fastest = Math.min(...times);
+        const cutoff = fastest * 1.15;
+        const laps = lapsRaw.filter(l => l.lap_duration && l.lap_duration <= cutoff);
+        const maxTime = Math.max(...laps.map(l => l.lap_duration));
+
+        const colour = _driverColours.get(Number(driverNum)) || "666";
+        const driverStints = _stints
+          .filter(s => s.driver_number === Number(driverNum))
+          .sort((a, b) => a.stint_number - b.stint_number);
+
+        let html = '<div class="lap-bar-container">';
+
+        if (driverStints.length) {
+          for (const stint of driverStints) {
+            const stintLaps = laps.filter(l =>
+              l.lap_number >= stint.lap_start && l.lap_number <= stint.lap_end
+            );
+            if (!stintLaps.length) continue;
+
+            const compound = stint.compound || "UNKNOWN";
+            const stintBest = Math.min(...stintLaps.map(l => l.lap_duration));
+
+            html += `<div class="stint-header">
+              <span class="compound compound-${compound}">${compound}</span>
+              Stint ${stint.stint_number} (Laps ${stint.lap_start}–${stint.lap_end})
+              · Age ${stint.tyre_age_at_start}
+            </div>`;
+            html += `<div class="best-lap-row">
+              <span class="label">Best</span>
+              <span class="time">${fmtTime(stintBest)}</span>
+            </div>`;
+
+            for (const lap of stintLaps) {
+              const width = Math.max(15, (lap.lap_duration / maxTime) * 100);
+              html += `<div class="lap-bar-row">
+                <span class="lap-bar-label">${lap.lap_number}</span>
+                <div class="lap-bar-track"><div class="lap-bar" style="width:${width}%;background:#${colour}"></div></div>
+                <span class="lap-bar-time">${fmtTime(lap.lap_duration)}</span>
+              </div>`;
+            }
+          }
+        } else {
+          for (const lap of laps) {
+            const width = Math.max(15, (lap.lap_duration / maxTime) * 100);
+            html += `<div class="lap-bar-row">
+              <span class="lap-bar-label">${lap.lap_number}</span>
+              <div class="lap-bar-track"><div class="lap-bar" style="width:${width}%;background:#${colour}"></div></div>
+              <span class="lap-bar-time">${fmtTime(lap.lap_duration)}</span>
+            </div>`;
+          }
+        }
+
+        html += "</div>";
+        el.innerHTML = html;
+        el.dataset.loaded = "1";
+      } catch (e) {
+        el.innerHTML = `<span class="driver-laps-loading">Error: ${e.message}</span>`;
+      }
     }
 
     function fmtTime(secs) {
@@ -386,98 +497,6 @@
       return mins > 0
         ? `${mins}:${rem.toFixed(3).padStart(6, "0")}`
         : rem.toFixed(3);
-    }
-
-    async function renderLaps(sk, drivers) {
-      const panel = document.getElementById("laps");
-      try {
-        const acronyms = new Map(drivers.map(d => [d.driver_number, d.name_acronym]));
-        const colours = new Map(drivers.map(d => [d.driver_number, d.team_colour || "666"]));
-
-        // Fetch stints once for all drivers
-        const stints = await f1("stints", { session_key: sk });
-
-        const topDrivers = drivers.slice(0, 6);
-        const allLaps = [];
-        for (const d of topDrivers) {
-          allLaps.push(await f1("laps", { session_key: sk, driver_number: d.driver_number }));
-        }
-
-        // Filter outlier laps (out/in laps, pit laps, red flags, etc.)
-        // Use 115% of the fastest lap as the cutoff — similar to F1's 107% rule
-        const rawTimes = allLaps.flat().map(l => l.lap_duration).filter(Boolean);
-        if (!rawTimes.length) { panel.innerHTML = '<p class="status">No lap data</p>'; return; }
-        const fastestLap = Math.min(...rawTimes);
-        const lapCutoff = fastestLap * 1.15;
-
-        const allTimes = rawTimes.filter(t => t <= lapCutoff).sort((a, b) => a - b);
-        if (!allTimes.length) { panel.innerHTML = '<p class="status">No lap data</p>'; return; }
-        const minTime = allTimes[0];
-        const maxTime = allTimes[allTimes.length - 1];
-
-        let html = "";
-        for (let i = 0; i < topDrivers.length; i++) {
-          const d = topDrivers[i];
-          const laps = allLaps[i].filter(l => l.lap_duration && l.lap_duration <= lapCutoff);
-          if (!laps.length) continue;
-
-          const sessionBest = Math.min(...laps.map(l => l.lap_duration));
-          const driverStints = stints
-            .filter(s => s.driver_number === d.driver_number)
-            .sort((a, b) => a.stint_number - b.stint_number);
-
-          html += `<div class="card">
-            <h3>${acronyms.get(d.driver_number) || d.driver_number}
-              <span class="session-best">${fmtTime(sessionBest)}</span></h3>
-            <div class="lap-bar-container">`;
-
-          if (driverStints.length) {
-            for (const stint of driverStints) {
-              const stintLaps = laps.filter(l =>
-                l.lap_number >= stint.lap_start && l.lap_number <= stint.lap_end
-              );
-              if (!stintLaps.length) continue;
-
-              const compound = stint.compound || "UNKNOWN";
-              const stintBest = Math.min(...stintLaps.map(l => l.lap_duration));
-
-              html += `<div class="stint-header">
-                <span class="compound compound-${compound}">${compound}</span>
-                Stint ${stint.stint_number} (Laps ${stint.lap_start}–${stint.lap_end})
-                · Age ${stint.tyre_age_at_start}
-              </div>`;
-              html += `<div class="best-lap-row">
-                <span class="label">Best</span>
-                <span class="time">${fmtTime(stintBest)}</span>
-              </div>`;
-
-              for (const lap of stintLaps) {
-                const width = maxTime === minTime ? 100 : Math.max(15, (lap.lap_duration / maxTime) * 100);
-                html += `<div class="lap-bar-row">
-                  <span class="lap-bar-label">${lap.lap_number}</span>
-                  <div class="lap-bar-track"><div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div></div>
-                  <span class="lap-bar-time">${fmtTime(lap.lap_duration)}</span>
-                </div>`;
-              }
-            }
-          } else {
-            // Fallback if no stint data
-            for (const lap of laps) {
-              const width = maxTime === minTime ? 100 : Math.max(15, (lap.lap_duration / maxTime) * 100);
-              html += `<div class="lap-bar-row">
-                <span class="lap-bar-label">${lap.lap_number}</span>
-                <div class="lap-bar-track"><div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div></div>
-                <span class="lap-bar-time">${fmtTime(lap.lap_duration)}</span>
-              </div>`;
-            }
-          }
-
-          html += "</div></div>";
-        }
-        panel.innerHTML = html || '<p class="status">No lap data</p>';
-      } catch (e) {
-        panel.innerHTML = `<p class="status error">Error: ${e.message}</p>`;
-      }
     }
 
     function renderPositions(drivers, positions) {
