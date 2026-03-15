@@ -48,18 +48,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check for existing ghost data
+        id: check_ghost
+        run: |
+          # Count JSON files that are NOT the sample/synthetic file
+          real_count=$(find docs/data/ghost -name '*.json' ! -name 'manifest.json' -exec grep -l '"telemetry"' {} \; 2>/dev/null | wc -l)
+          echo "real_count=$real_count" >> "$GITHUB_OUTPUT"
+          # Generate if explicitly requested OR if no real data exists yet
+          if [[ "${{ inputs.generate_ghost }}" == "true" ]] || [[ "$real_count" -eq 0 ]]; then
+            echo "should_generate=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_generate=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Python
-        if: inputs.generate_ghost
+        if: steps.check_ghost.outputs.should_generate == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install FastF1
-        if: inputs.generate_ghost
+        if: steps.check_ghost.outputs.should_generate == 'true'
         run: pip install -r requirements.txt
 
       - name: Cache FastF1 data
-        if: inputs.generate_ghost
+        if: steps.check_ghost.outputs.should_generate == 'true'
         uses: actions/cache@v4
         with:
           path: .f1cache
@@ -67,22 +80,27 @@ jobs:
           restore-keys: f1cache-
 
       - name: Generate ghost car data
-        if: inputs.generate_ghost
+        if: steps.check_ghost.outputs.should_generate == 'true'
         run: |
+          year="${{ inputs.year || '2024' }}"
+          event="${{ inputs.event || 'Bahrain' }}"
+          session="${{ inputs.session || 'Q' }}"
+          driver1="${{ inputs.driver1 || 'VER' }}"
+          driver2="${{ inputs.driver2 || 'NOR' }}"
           python scripts/generate_ghost_data.py \
-            --year ${{ inputs.year }} \
-            --event "${{ inputs.event }}" \
-            --session ${{ inputs.session }} \
-            --driver1 ${{ inputs.driver1 }} \
-            --driver2 ${{ inputs.driver2 }}
+            --year "$year" \
+            --event "$event" \
+            --session "$session" \
+            --driver1 "$driver1" \
+            --driver2 "$driver2"
 
       - name: Commit ghost data to repo
-        if: inputs.generate_ghost
+        if: steps.check_ghost.outputs.should_generate == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/data/
-          git diff --cached --quiet || git commit -m "Add ghost data: ${{ inputs.driver1 }} vs ${{ inputs.driver2 }} — ${{ inputs.event }} ${{ inputs.year }} ${{ inputs.session }}"
+          git diff --cached --quiet || git commit -m "Add ghost data: ${{ inputs.driver1 || 'VER' }} vs ${{ inputs.driver2 || 'NOR' }} — ${{ inputs.event || 'Bahrain' }} ${{ inputs.year || '2024' }} ${{ inputs.session || 'Q' }}"
           git push
 
       - name: Build ghost manifest

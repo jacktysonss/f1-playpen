@@ -737,7 +737,7 @@
     const b = trackBounds;
     return [
       (x - b.minX) * b.scale + b.offsetX,
-      (y - b.minY) * b.scale + b.offsetY,
+      (b.maxY - y) * b.scale + b.offsetY,
     ];
   }
 
