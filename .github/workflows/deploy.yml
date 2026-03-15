@@ -3,6 +3,12 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      generate_ghost:
+        description: 'Generate ghost car data (slow, downloads F1 telemetry)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,6 +27,34 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Python
+        if: inputs.generate_ghost
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install FastF1
+        if: inputs.generate_ghost
+        run: pip install -r requirements.txt
+
+      - name: Cache FastF1 data
+        if: inputs.generate_ghost
+        uses: actions/cache@v4
+        with:
+          path: .f1cache
+          key: f1cache-${{ github.sha }}
+          restore-keys: f1cache-
+
+      - name: Generate ghost car data
+        if: inputs.generate_ghost
+        run: |
+          python scripts/generate_ghost_data.py \
+            --year 2024 --event Bahrain --session Q \
+            --driver1 VER --driver2 NOR
+
+      - name: Build ghost manifest
+        run: python scripts/build_manifest.py
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>F1 Ghost Car Comparison</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #e94560;
+      --track: #30363d;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* --- File picker / landing --- */
+    #landing {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      gap: 1.5rem;
+      padding: 2rem;
+      text-align: center;
+    }
+
+    #landing h1 { font-size: 1.5rem; }
+    #landing p { color: var(--muted); max-width: 28rem; font-size: 0.9rem; }
+
+    #file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      width: 100%;
+      max-width: 24rem;
+    }
+
+    .file-btn {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      text-align: left;
+      transition: border-color 0.15s;
+    }
+
+    .file-btn:hover { border-color: var(--accent); }
+    .file-btn .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
+
+    /* --- Main visualisation layout --- */
+    #app {
+      display: none;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* Landscape layout: telemetry | track | telemetry */
+    .vis-container {
+      display: grid;
+      grid-template-columns: 160px 1fr 160px;
+      grid-template-rows: auto 1fr auto;
+      height: 100%;
+      width: 100%;
+    }
+
+    /* Header spans full width */
+    .vis-header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.4rem 0.75rem;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8rem;
+      min-height: 36px;
+    }
+
+    .vis-header .session-info { color: var(--muted); }
+    .vis-header .lap-delta {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-weight: 700;
+      font-size: 0.95rem;
+    }
+
+    .back-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.75rem;
+    }
+
+    .back-btn:hover { color: var(--text); border-color: var(--text); }
+
+    /* Telemetry side panels */
+    .telem-panel {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0.5rem;
+      gap: 0.4rem;
+      overflow: hidden;
+    }
+
+    .telem-panel.left { border-right: 1px solid var(--border); }
+    .telem-panel.right { border-left: 1px solid var(--border); }
+
+    .telem-driver {
+      font-weight: 700;
+      font-size: 0.85rem;
+      margin-bottom: 0.25rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .telem-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      line-height: 1.6;
+    }
+
+    .telem-label { color: var(--muted); }
+
+    .telem-value {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-weight: 600;
+      min-width: 3.5rem;
+      text-align: right;
+    }
+
+    /* Speed bar */
+    .speed-bar-track {
+      width: 100%;
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      margin-top: 0.15rem;
+    }
+
+    .speed-bar {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.08s linear;
+    }
+
+    /* Throttle/brake indicator */
+    .pedal-row {
+      display: flex;
+      gap: 0.25rem;
+      align-items: center;
+      font-size: 0.7rem;
+    }
+
+    .pedal-indicator {
+      width: 100%;
+      height: 8px;
+      border-radius: 2px;
+      background: var(--border);
+    }
+
+    .pedal-indicator.active-throttle { background: #3fb950; }
+    .pedal-indicator.active-brake { background: #f85149; }
+
+    .lap-time-display {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 0.9rem;
+      font-weight: 700;
+      margin-top: 0.25rem;
+      text-align: center;
+    }
+
+    /* Track canvas */
+    .track-area {
+      position: relative;
+      overflow: hidden;
+    }
+
+    #trackCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* Controls bar */
+    .controls {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      padding: 0.4rem 0.75rem;
+      background: var(--card);
+      border-top: 1px solid var(--border);
+      min-height: 40px;
+    }
+
+    .ctrl-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .ctrl-btn.active { background: var(--accent); border-color: var(--accent); }
+
+    .progress-track {
+      flex: 1;
+      max-width: 400px;
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .progress-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: var(--accent);
+      width: 0%;
+      pointer-events: none;
+    }
+
+    .speed-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-family: "SF Mono", "Fira Code", monospace;
+      min-width: 2.5rem;
+      text-align: center;
+    }
+
+    .time-label {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 0.75rem;
+      color: var(--muted);
+      min-width: 3rem;
+    }
+
+    .fullscreen-btn {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      z-index: 10;
+    }
+
+    /* Mobile: stack vertically in portrait, use landscape grid */
+    @media (max-width: 600px) {
+      .vis-container {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto 1fr auto auto;
+      }
+
+      .telem-panel.left { border-right: none; border-bottom: 1px solid var(--border); }
+      .telem-panel.right { border-left: none; border-top: 1px solid var(--border); }
+
+      .telem-panel {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: space-around;
+        padding: 0.3rem 0.5rem;
+      }
+
+      .telem-panel .telem-driver { width: 100%; text-align: center; margin-bottom: 0; }
+      .telem-row { width: auto; gap: 0.3rem; }
+      .speed-bar-track { display: none; }
+    }
+
+    @media (max-width: 600px) and (orientation: landscape) {
+      .vis-container {
+        grid-template-columns: 140px 1fr 140px;
+        grid-template-rows: auto 1fr auto;
+      }
+
+      .telem-panel.left { border-right: 1px solid var(--border); border-bottom: none; }
+      .telem-panel.right { border-left: 1px solid var(--border); border-top: none; }
+
+      .telem-panel {
+        flex-direction: column;
+        flex-wrap: nowrap;
+        justify-content: center;
+      }
+
+      .telem-panel .telem-driver { text-align: left; }
+      .speed-bar-track { display: block; }
+    }
+
+    /* Loading state */
+    .loading-msg {
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-align: center;
+      padding: 2rem;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Landing: pick a comparison file -->
+<div id="landing">
+  <h1>Ghost Car Comparison</h1>
+  <p>Compare two drivers' fastest laps side-by-side. Watch how gaps develop around the circuit with synchronised telemetry.</p>
+  <div id="file-list">
+    <p class="loading-msg">Loading available comparisons...</p>
+  </div>
+  <p style="font-size:0.75rem;color:var(--muted);margin-top:1rem">
+    <a href="index.html" style="color:var(--accent)">Back to dashboard</a>
+  </p>
+</div>
+
+<!-- Main visualisation (hidden until data loaded) -->
+<div id="app">
+  <div class="vis-container">
+    <!-- Header -->
+    <div class="vis-header">
+      <button class="back-btn" id="backBtn">Back</button>
+      <span class="session-info" id="sessionInfo"></span>
+      <span class="lap-delta" id="lapDelta"></span>
+    </div>
+
+    <!-- Left telemetry (Driver 1) -->
+    <div class="telem-panel left" id="telemLeft"></div>
+
+    <!-- Track canvas -->
+    <div class="track-area">
+      <canvas id="trackCanvas"></canvas>
+    </div>
+
+    <!-- Right telemetry (Driver 2) -->
+    <div class="telem-panel right" id="telemRight"></div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="ctrl-btn" id="restartBtn" title="Restart">&#8634;</button>
+      <button class="ctrl-btn" id="playBtn" title="Play/Pause">&#9654;</button>
+      <span class="time-label" id="timeLabel">0.000</span>
+      <div class="progress-track" id="progressTrack">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <span class="time-label" id="totalTime">0.000</span>
+      <button class="ctrl-btn" id="slowerBtn" title="Slower">-</button>
+      <span class="speed-label" id="speedLabel">1x</span>
+      <button class="ctrl-btn" id="fasterBtn" title="Faster">+</button>
+      <button class="ctrl-btn" id="fullscreenBtn" title="Fullscreen">&#x26F6;</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---- State ----
+  let data = null;
+  let playing = false;
+  let elapsed = 0;        // seconds into the animation
+  let playbackSpeed = 1;
+  let animFrame = null;
+  let lastFrameTime = null;
+
+  const speeds = [0.25, 0.5, 1, 2, 4, 8];
+  let speedIdx = 2; // start at 1x
+
+  // ---- Elements ----
+  const landing = document.getElementById("landing");
+  const app = document.getElementById("app");
+  const canvas = document.getElementById("trackCanvas");
+  const ctx = canvas.getContext("2d");
+
+  // ---- Data loading ----
+
+  // Discover available JSON files from a known manifest or hardcoded list
+  async function loadFileList() {
+    const listEl = document.getElementById("file-list");
+    try {
+      const res = await fetch("data/ghost/manifest.json");
+      if (!res.ok) throw new Error("No manifest");
+      const manifest = await res.json();
+
+      if (!manifest.length) {
+        listEl.innerHTML = '<p class="loading-msg">No comparisons generated yet. Run the generate script first.</p>';
+        return;
+      }
+
+      listEl.innerHTML = "";
+      for (const entry of manifest) {
+        const btn = document.createElement("button");
+        btn.className = "file-btn";
+        btn.innerHTML = `
+          <div>${entry.label || entry.file}</div>
+          <div class="meta">${entry.meta || ""}</div>
+        `;
+        btn.addEventListener("click", () => loadComparison(entry.file));
+        listEl.appendChild(btn);
+      }
+    } catch {
+      listEl.innerHTML = '<p class="loading-msg">No comparisons found.<br>Run <code>python scripts/generate_ghost_data.py</code> to create one.</p>';
+    }
+  }
+
+  async function loadComparison(filename) {
+    const listEl = document.getElementById("file-list");
+    listEl.innerHTML = '<p class="loading-msg">Loading telemetry data...</p>';
+
+    try {
+      const res = await fetch(`data/ghost/${filename}`);
+      if (!res.ok) throw new Error(`Failed to load ${filename}`);
+      data = await res.json();
+
+      initVisualisation();
+    } catch (e) {
+      listEl.innerHTML = `<p class="loading-msg" style="color:#f85149">Error: ${e.message}</p>`;
+    }
+  }
+
+  // ---- Initialise visualisation ----
+
+  function initVisualisation() {
+    landing.style.display = "none";
+    app.style.display = "block";
+
+    // Session info
+    const s = data.session;
+    document.getElementById("sessionInfo").textContent =
+      `${s.year} ${s.event} — ${s.session} — ${s.circuit}`;
+
+    // Lap delta
+    const delta = data.driver2.lap_time - data.driver1.lap_time;
+    const deltaStr = (delta >= 0 ? "+" : "") + delta.toFixed(3) + "s";
+    const deltaEl = document.getElementById("lapDelta");
+    deltaEl.textContent = `${data.driver1.code} vs ${data.driver2.code}: ${deltaStr}`;
+    deltaEl.style.color = delta > 0 ? `#${data.driver1.color}` : `#${data.driver2.color}`;
+
+    // Total time = slower lap
+    const totalTime = Math.max(data.driver1.lap_time, data.driver2.lap_time);
+    document.getElementById("totalTime").textContent = fmtTime(totalTime);
+
+    // Build telemetry panels
+    buildTelemPanel("telemLeft", data.driver1);
+    buildTelemPanel("telemRight", data.driver2);
+
+    // Setup canvas
+    resizeCanvas();
+    window.addEventListener("resize", () => { resizeCanvas(); drawFrame(); });
+
+    // Controls
+    document.getElementById("playBtn").addEventListener("click", togglePlay);
+    document.getElementById("restartBtn").addEventListener("click", restart);
+    document.getElementById("slowerBtn").addEventListener("click", () => changeSpeed(-1));
+    document.getElementById("fasterBtn").addEventListener("click", () => changeSpeed(1));
+    document.getElementById("fullscreenBtn").addEventListener("click", goFullscreen);
+    document.getElementById("backBtn").addEventListener("click", goBack);
+
+    // Progress bar scrubbing
+    const progressTrack = document.getElementById("progressTrack");
+    let scrubbing = false;
+
+    const scrub = (e) => {
+      const rect = progressTrack.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      elapsed = pct * Math.max(data.driver1.lap_time, data.driver2.lap_time);
+      drawFrame();
+    };
+
+    progressTrack.addEventListener("mousedown", (e) => { scrubbing = true; scrub(e); });
+    progressTrack.addEventListener("touchstart", (e) => { scrubbing = true; scrub(e); }, { passive: true });
+    window.addEventListener("mousemove", (e) => { if (scrubbing) scrub(e); });
+    window.addEventListener("touchmove", (e) => { if (scrubbing) scrub(e); }, { passive: true });
+    window.addEventListener("mouseup", () => { scrubbing = false; });
+    window.addEventListener("touchend", () => { scrubbing = false; });
+
+    // Keyboard controls
+    document.addEventListener("keydown", (e) => {
+      if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+      if (e.code === "ArrowRight") { elapsed = Math.min(elapsed + 1, totalTime); drawFrame(); }
+      if (e.code === "ArrowLeft") { elapsed = Math.max(elapsed - 1, 0); drawFrame(); }
+      if (e.code === "KeyR") restart();
+    });
+
+    // Initial draw
+    elapsed = 0;
+    drawFrame();
+  }
+
+  function buildTelemPanel(id, driver) {
+    const el = document.getElementById(id);
+    el.innerHTML = `
+      <div class="telem-driver" style="color:#${driver.color}">${driver.code} <span style="font-weight:400;color:var(--muted);font-size:0.7rem">#${driver.number}</span></div>
+      <div class="lap-time-display" data-field="laptime">—</div>
+      <div class="telem-row"><span class="telem-label">Speed</span><span class="telem-value" data-field="speed">—</span></div>
+      <div class="speed-bar-track"><div class="speed-bar" data-field="speedbar" style="background:#${driver.color};width:0%"></div></div>
+      <div class="telem-row"><span class="telem-label">Gear</span><span class="telem-value" data-field="gear">—</span></div>
+      <div class="pedal-row"><span class="telem-label" style="min-width:2rem">THR</span><div class="pedal-indicator" data-field="throttle"></div></div>
+      <div class="pedal-row"><span class="telem-label" style="min-width:2rem">BRK</span><div class="pedal-indicator" data-field="brake"></div></div>
+      <div class="telem-row"><span class="telem-label">DRS</span><span class="telem-value" data-field="drs">—</span></div>
+    `;
+  }
+
+  function updateTelemPanel(id, driver, t) {
+    const el = document.getElementById(id);
+    const tel = driver.telemetry;
+
+    // Find index by time (binary search-ish, but linear is fine for 500 pts)
+    let idx = 0;
+    const clampedT = Math.min(t, driver.lap_time);
+    for (let i = 1; i < tel.time.length; i++) {
+      if (tel.time[i] <= clampedT) idx = i;
+      else break;
+    }
+
+    const speed = tel.speed[idx];
+    const gear = tel.gear[idx];
+    const throttle = tel.throttle[idx];
+    const brake = tel.brake[idx];
+    const drs = tel.drs[idx];
+
+    el.querySelector('[data-field="laptime"]').textContent = fmtTime(clampedT);
+    el.querySelector('[data-field="speed"]').textContent = Math.round(speed) + " km/h";
+    el.querySelector('[data-field="speedbar"]').style.width = (speed / 360 * 100) + "%";
+    el.querySelector('[data-field="gear"]').textContent = gear;
+
+    const thrEl = el.querySelector('[data-field="throttle"]');
+    thrEl.className = "pedal-indicator" + (throttle > 50 ? " active-throttle" : "");
+
+    const brkEl = el.querySelector('[data-field="brake"]');
+    brkEl.className = "pedal-indicator" + (brake ? " active-brake" : "");
+
+    el.querySelector('[data-field="drs"]').textContent = drs > 0 ? "OPEN" : "—";
+    el.querySelector('[data-field="drs"]').style.color = drs > 0 ? "#3fb950" : "var(--muted)";
+  }
+
+  // ---- Canvas rendering ----
+
+  let trackBounds = null; // { minX, maxX, minY, maxY, scale, offsetX, offsetY }
+
+  function resizeCanvas() {
+    const area = canvas.parentElement;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = area.clientWidth * dpr;
+    canvas.height = area.clientHeight * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    trackBounds = null; // recalculate
+  }
+
+  function computeBounds() {
+    const t = data.track;
+    const padding = 40;
+    const w = canvas.width / (window.devicePixelRatio || 1);
+    const h = canvas.height / (window.devicePixelRatio || 1);
+
+    const minX = Math.min(...t.x);
+    const maxX = Math.max(...t.x);
+    const minY = Math.min(...t.y);
+    const maxY = Math.max(...t.y);
+    const rangeX = maxX - minX || 1;
+    const rangeY = maxY - minY || 1;
+
+    const scale = Math.min((w - padding * 2) / rangeX, (h - padding * 2) / rangeY);
+    const offsetX = (w - rangeX * scale) / 2;
+    const offsetY = (h - rangeY * scale) / 2;
+
+    trackBounds = { minX, maxX, minY, maxY, scale, offsetX, offsetY };
+  }
+
+  function toScreen(x, y) {
+    const b = trackBounds;
+    return [
+      (x - b.minX) * b.scale + b.offsetX,
+      (y - b.minY) * b.scale + b.offsetY,
+    ];
+  }
+
+  function getDriverPos(driver, t) {
+    const tel = driver.telemetry;
+    const clampedT = Math.min(t, driver.lap_time);
+
+    // Find surrounding indices
+    let i = 0;
+    for (let j = 1; j < tel.time.length; j++) {
+      if (tel.time[j] <= clampedT) i = j;
+      else break;
+    }
+
+    // If at end, return last point
+    if (i >= tel.time.length - 1) return [tel.x[i], tel.y[i]];
+
+    // Linear interpolation between i and i+1
+    const t0 = tel.time[i];
+    const t1 = tel.time[i + 1];
+    const frac = t1 > t0 ? (clampedT - t0) / (t1 - t0) : 0;
+
+    return [
+      tel.x[i] + (tel.x[i + 1] - tel.x[i]) * frac,
+      tel.y[i] + (tel.y[i + 1] - tel.y[i]) * frac,
+    ];
+  }
+
+  function drawFrame() {
+    if (!data) return;
+    if (!trackBounds) computeBounds();
+
+    const w = canvas.width / (window.devicePixelRatio || 1);
+    const h = canvas.height / (window.devicePixelRatio || 1);
+    ctx.clearRect(0, 0, w, h);
+
+    // Draw track outline
+    const t = data.track;
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(255,255,255,0.15)";
+    ctx.lineWidth = 12;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    for (let i = 0; i < t.x.length; i++) {
+      const [sx, sy] = toScreen(t.x[i], t.y[i]);
+      if (i === 0) ctx.moveTo(sx, sy);
+      else ctx.lineTo(sx, sy);
+    }
+    ctx.closePath();
+    ctx.stroke();
+
+    // Thinner center line
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(255,255,255,0.05)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < t.x.length; i++) {
+      const [sx, sy] = toScreen(t.x[i], t.y[i]);
+      if (i === 0) ctx.moveTo(sx, sy);
+      else ctx.lineTo(sx, sy);
+    }
+    ctx.closePath();
+    ctx.stroke();
+
+    // Draw corner numbers
+    ctx.font = "10px -apple-system, sans-serif";
+    ctx.fillStyle = "rgba(255,255,255,0.3)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const c of data.corners) {
+      const [sx, sy] = toScreen(c.x, c.y);
+      ctx.fillText(c.number, sx, sy);
+    }
+
+    // Draw start/finish line
+    if (t.x.length > 1) {
+      const [sx, sy] = toScreen(t.x[0], t.y[0]);
+      ctx.beginPath();
+      ctx.arc(sx, sy, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,255,255,0.4)";
+      ctx.fill();
+    }
+
+    const totalTime = Math.max(data.driver1.lap_time, data.driver2.lap_time);
+
+    // Determine which driver is behind (draw behind first, ahead on top)
+    const d1Done = elapsed >= data.driver1.lap_time;
+    const d2Done = elapsed >= data.driver2.lap_time;
+
+    // Draw driver dots
+    const drawDriver = (driver, done) => {
+      const [px, py] = getDriverPos(driver, elapsed);
+      const [sx, sy] = toScreen(px, py);
+      const radius = Math.min(w, h) < 400 ? 10 : 8;
+
+      // Glow
+      ctx.beginPath();
+      ctx.arc(sx, sy, radius + 4, 0, Math.PI * 2);
+      ctx.fillStyle = `#${driver.color}33`;
+      ctx.fill();
+
+      // Dot
+      ctx.beginPath();
+      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+      ctx.fillStyle = done ? `#${driver.color}88` : `#${driver.color}`;
+      ctx.fill();
+
+      // Label
+      ctx.font = `bold ${radius}px -apple-system, sans-serif`;
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(driver.code, sx, sy - radius - 8);
+    };
+
+    // Draw slower driver first (behind), faster on top
+    if (data.driver1.lap_time <= data.driver2.lap_time) {
+      drawDriver(data.driver2, d2Done);
+      drawDriver(data.driver1, d1Done);
+    } else {
+      drawDriver(data.driver1, d1Done);
+      drawDriver(data.driver2, d2Done);
+    }
+
+    // Update telemetry panels
+    updateTelemPanel("telemLeft", data.driver1, elapsed);
+    updateTelemPanel("telemRight", data.driver2, elapsed);
+
+    // Update progress bar
+    const pct = totalTime > 0 ? (elapsed / totalTime) * 100 : 0;
+    document.getElementById("progressFill").style.width = pct + "%";
+    document.getElementById("timeLabel").textContent = fmtTime(elapsed);
+  }
+
+  // ---- Animation loop ----
+
+  function animate(timestamp) {
+    if (!playing) return;
+
+    if (lastFrameTime === null) lastFrameTime = timestamp;
+    const dt = (timestamp - lastFrameTime) / 1000; // seconds
+    lastFrameTime = timestamp;
+
+    elapsed += dt * playbackSpeed;
+
+    const totalTime = Math.max(data.driver1.lap_time, data.driver2.lap_time);
+    if (elapsed >= totalTime) {
+      elapsed = totalTime;
+      playing = false;
+      document.getElementById("playBtn").innerHTML = "&#9654;";
+      drawFrame();
+      return;
+    }
+
+    drawFrame();
+    animFrame = requestAnimationFrame(animate);
+  }
+
+  // ---- Controls ----
+
+  function togglePlay() {
+    const totalTime = Math.max(data.driver1.lap_time, data.driver2.lap_time);
+    if (elapsed >= totalTime) {
+      elapsed = 0;
+    }
+
+    playing = !playing;
+    document.getElementById("playBtn").innerHTML = playing ? "&#9646;&#9646;" : "&#9654;";
+
+    if (playing) {
+      lastFrameTime = null;
+      animFrame = requestAnimationFrame(animate);
+    } else {
+      cancelAnimationFrame(animFrame);
+    }
+  }
+
+  function restart() {
+    playing = false;
+    cancelAnimationFrame(animFrame);
+    elapsed = 0;
+    document.getElementById("playBtn").innerHTML = "&#9654;";
+    drawFrame();
+  }
+
+  function changeSpeed(dir) {
+    speedIdx = Math.max(0, Math.min(speeds.length - 1, speedIdx + dir));
+    playbackSpeed = speeds[speedIdx];
+    document.getElementById("speedLabel").textContent = playbackSpeed + "x";
+  }
+
+  function goFullscreen() {
+    const el = document.documentElement;
+    if (!document.fullscreenElement) {
+      (el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen).call(el);
+      // Try to lock to landscape on mobile
+      try { screen.orientation.lock("landscape").catch(() => {}); } catch {}
+    } else {
+      document.exitFullscreen();
+    }
+  }
+
+  function goBack() {
+    playing = false;
+    cancelAnimationFrame(animFrame);
+    app.style.display = "none";
+    landing.style.display = "flex";
+    data = null;
+  }
+
+  // ---- Helpers ----
+
+  function fmtTime(secs) {
+    if (secs == null) return "—";
+    const mins = Math.floor(secs / 60);
+    const rem = secs - mins * 60;
+    return mins > 0
+      ? `${mins}:${rem.toFixed(3).padStart(6, "0")}`
+      : rem.toFixed(3);
+  }
+
+  // ---- Init ----
+  loadFileList();
+</script>
+
+</body>
+</html>
