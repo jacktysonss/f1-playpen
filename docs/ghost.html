@@ -341,7 +341,10 @@
       z-index: 10;
     }
 
-    /* Mobile portrait: stack vertically with compact horizontal telemetry */
+    /* Pedals wrapper — no special styling in desktop/landscape */
+    .telem-pedals { display: contents; }
+
+    /* Mobile portrait: two-row compact telemetry */
     @media (max-width: 600px) and (orientation: portrait) {
       .vis-container {
         grid-template-columns: 1fr;
@@ -352,23 +355,21 @@
       .telem-panel.right { border-left: none; border-top: 1px solid var(--border); }
 
       .telem-panel {
-        display: grid;
-        grid-template-columns: auto 1fr repeat(4, auto);
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
         align-items: center;
-        gap: 0 0.5rem;
-        padding: 0.25rem 0.5rem;
+        gap: 0 0.6rem;
+        padding: 0.2rem 0.5rem;
       }
 
       .telem-panel .telem-driver {
-        width: auto;
-        text-align: left;
         margin-bottom: 0;
         font-size: 0.75rem;
       }
 
       .telem-panel .lap-time-display {
         font-size: 0.75rem;
-        text-align: left;
         margin-top: 0;
       }
 
@@ -376,17 +377,29 @@
       .telem-panel .telem-value { min-width: auto; font-size: 0.7rem; }
       .speed-bar-track { display: none; }
 
+      /* THR/BRK/DRS on a dedicated second row */
+      .telem-panel .telem-pedals {
+        display: flex;
+        width: 100%;
+        gap: 0.6rem;
+        align-items: center;
+      }
+
       .telem-panel .pedal-row {
-        gap: 0.15rem;
+        gap: 0.2rem;
         font-size: 0.65rem;
+        display: flex;
+        align-items: center;
       }
 
       .telem-panel .pedal-indicator {
-        width: 28px;
+        width: 40px;
         height: 6px;
       }
 
       .telem-panel .pedal-row .telem-label { min-width: auto !important; }
+
+      .telem-panel .telem-pedals .telem-row { font-size: 0.65rem; }
     }
 
     /* Mobile landscape: side panels */
@@ -691,9 +704,11 @@
       <div class="telem-row"><span class="telem-label">Speed</span><span class="telem-value" data-field="speed">—</span></div>
       <div class="speed-bar-track"><div class="speed-bar" data-field="speedbar" style="background:#${driver.color};width:0%"></div></div>
       <div class="telem-row"><span class="telem-label">Gear</span><span class="telem-value" data-field="gear">—</span></div>
-      <div class="pedal-row"><span class="telem-label" style="min-width:2rem">THR</span><div class="pedal-indicator" data-field="throttle"></div></div>
-      <div class="pedal-row"><span class="telem-label" style="min-width:2rem">BRK</span><div class="pedal-indicator" data-field="brake"></div></div>
-      <div class="telem-row"><span class="telem-label">DRS</span><span class="telem-value" data-field="drs">—</span></div>
+      <div class="telem-pedals">
+        <div class="pedal-row"><span class="telem-label" style="min-width:2rem">THR</span><div class="pedal-indicator" data-field="throttle"></div></div>
+        <div class="pedal-row"><span class="telem-label" style="min-width:2rem">BRK</span><div class="pedal-indicator" data-field="brake"></div></div>
+        <div class="telem-row"><span class="telem-label">DRS</span><span class="telem-value" data-field="drs">—</span></div>
+      </div>
     `;
 
     // Cache element references
