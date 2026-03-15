@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>F1 Playpen</title>
+  <style>
+    :root {
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --card: #0f3460;
+      --accent: #e94560;
+      --text: #eee;
+      --muted: #999;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+    }
+
+    header {
+      background: var(--surface);
+      padding: 1rem;
+      text-align: center;
+      border-bottom: 2px solid var(--accent);
+    }
+
+    header h1 { font-size: 1.4rem; }
+    header p { color: var(--muted); font-size: 0.85rem; margin-top: 0.25rem; }
+
+    main { padding: 1rem; max-width: 800px; margin: 0 auto; }
+
+    .controls {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+
+    select, button {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid #333;
+      padding: 0.6rem 0.8rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+
+    button {
+      background: var(--accent);
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    button:active { opacity: 0.8; }
+
+    .tabs {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 1rem;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .tab {
+      background: var(--surface);
+      color: var(--muted);
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 6px 6px 0 0;
+      cursor: pointer;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+
+    .tab.active {
+      background: var(--card);
+      color: var(--text);
+      border-bottom: 2px solid var(--accent);
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .card {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .card h3 { font-size: 0.95rem; margin-bottom: 0.5rem; }
+
+    .driver-row {
+      display: flex;
+      align-items: center;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      gap: 0.75rem;
+    }
+
+    .driver-row:last-child { border-bottom: none; }
+
+    .pos {
+      font-weight: 700;
+      font-size: 1.1rem;
+      width: 2rem;
+      text-align: center;
+    }
+
+    .team-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .driver-info { flex: 1; }
+    .driver-name { font-weight: 600; font-size: 0.9rem; }
+    .team-name { color: var(--muted); font-size: 0.75rem; }
+    .lap-time { font-family: "SF Mono", monospace; font-size: 0.9rem; }
+
+    .lap-bar-container { margin: 0.3rem 0; }
+
+    .lap-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.25rem;
+      font-size: 0.8rem;
+    }
+
+    .lap-bar-label { width: 2rem; text-align: right; color: var(--muted); }
+
+    .lap-bar {
+      height: 18px;
+      border-radius: 3px;
+      min-width: 4px;
+      transition: width 0.3s;
+    }
+
+    .lap-bar-time { font-family: "SF Mono", monospace; font-size: 0.75rem; color: var(--muted); }
+
+    .weather-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .weather-stat {
+      text-align: center;
+      padding: 0.5rem;
+    }
+
+    .weather-stat .value { font-size: 1.5rem; font-weight: 700; }
+    .weather-stat .label { color: var(--muted); font-size: 0.75rem; }
+
+    .status { text-align: center; padding: 2rem; color: var(--muted); }
+    .error { color: var(--accent); }
+
+    #loading { display: none; text-align: center; padding: 1rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>F1 Playpen</h1>
+    <p>Live data from OpenF1 API</p>
+  </header>
+
+  <main>
+    <div class="controls">
+      <select id="year"></select>
+      <select id="session"></select>
+      <button id="load">Load</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="drivers">Drivers</button>
+      <button class="tab" data-tab="laps">Lap Times</button>
+      <button class="tab" data-tab="positions">Positions</button>
+      <button class="tab" data-tab="weather">Weather</button>
+    </div>
+
+    <div id="loading">Loading...</div>
+
+    <div id="drivers" class="panel active"></div>
+    <div id="laps" class="panel"></div>
+    <div id="positions" class="panel"></div>
+    <div id="weather" class="panel"></div>
+  </main>
+
+  <script>
+    const API = "https://api.openf1.org/v1";
+
+    async function f1(endpoint, params = {}) {
+      const url = new URL(`${API}/${endpoint}`);
+      for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.json();
+    }
+
+    // --- Init ---
+    const yearEl = document.getElementById("year");
+    const sessionEl = document.getElementById("session");
+    const loadBtn = document.getElementById("load");
+    const loadingEl = document.getElementById("loading");
+
+    const currentYear = new Date().getFullYear();
+    for (let y = currentYear; y >= 2023; y--) {
+      yearEl.add(new Option(y, y));
+    }
+
+    let sessions = [];
+
+    yearEl.addEventListener("change", loadSessions);
+
+    async function loadSessions() {
+      sessionEl.innerHTML = '<option>Loading...</option>';
+      try {
+        sessions = await f1("sessions", { year: yearEl.value });
+        // Show races and qualifying, most recent first
+        const interesting = sessions
+          .filter(s => ["Race", "Qualifying", "Sprint"].includes(s.session_type))
+          .reverse();
+        sessionEl.innerHTML = "";
+        for (const s of interesting) {
+          sessionEl.add(new Option(
+            `${s.meeting_name} — ${s.session_type}`,
+            s.session_key
+          ));
+        }
+      } catch (e) {
+        sessionEl.innerHTML = `<option>Error loading sessions</option>`;
+      }
+    }
+
+    // Tabs
+    document.querySelectorAll(".tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+        tab.classList.add("active");
+        document.getElementById(tab.dataset.tab).classList.add("active");
+      });
+    });
+
+    // Load data
+    loadBtn.addEventListener("click", async () => {
+      const sk = sessionEl.value;
+      if (!sk) return;
+      loadingEl.style.display = "block";
+      try {
+        await Promise.all([
+          loadDrivers(sk),
+          loadLaps(sk),
+          loadPositions(sk),
+          loadWeather(sk),
+        ]);
+      } catch (e) {
+        console.error(e);
+      }
+      loadingEl.style.display = "none";
+    });
+
+    async function loadDrivers(sk) {
+      const panel = document.getElementById("drivers");
+      try {
+        const drivers = await f1("drivers", { session_key: sk });
+        if (!drivers.length) { panel.innerHTML = '<p class="status">No driver data</p>'; return; }
+
+        // Try to get final positions
+        let positions = [];
+        try { positions = await f1("position", { session_key: sk }); } catch {}
+
+        // Get last position for each driver
+        const lastPos = new Map();
+        for (const p of positions) lastPos.set(p.driver_number, p.position);
+
+        const sorted = [...drivers].sort((a, b) =>
+          (lastPos.get(a.driver_number) ?? 99) - (lastPos.get(b.driver_number) ?? 99)
+        );
+
+        panel.innerHTML = '<div class="card">' + sorted.map(d => `
+          <div class="driver-row">
+            <span class="pos">${lastPos.get(d.driver_number) ?? "-"}</span>
+            <span class="team-dot" style="background:#${d.team_colour || '666'}"></span>
+            <div class="driver-info">
+              <div class="driver-name">${d.full_name || d.first_name + " " + d.last_name}</div>
+              <div class="team-name">${d.team_name || ""}</div>
+            </div>
+            <span class="lap-time">#${d.driver_number}</span>
+          </div>
+        `).join("") + '</div>';
+      } catch (e) {
+        panel.innerHTML = `<p class="status error">Error: ${e.message}</p>`;
+      }
+    }
+
+    async function loadLaps(sk) {
+      const panel = document.getElementById("laps");
+      try {
+        const drivers = await f1("drivers", { session_key: sk });
+        const acronyms = new Map(drivers.map(d => [d.driver_number, d.name_acronym]));
+        const colours = new Map(drivers.map(d => [d.driver_number, d.team_colour || "666"]));
+
+        // Get laps for a few top drivers to keep it manageable
+        const topDrivers = drivers.slice(0, 6);
+        const allLaps = await Promise.all(
+          topDrivers.map(d => f1("laps", { session_key: sk, driver_number: d.driver_number }))
+        );
+
+        // Find min/max lap times for scaling bars
+        const allTimes = allLaps.flat().map(l => l.lap_duration).filter(Boolean);
+        if (!allTimes.length) { panel.innerHTML = '<p class="status">No lap data</p>'; return; }
+        const minTime = Math.min(...allTimes);
+        const maxTime = Math.max(...allTimes);
+        const fastest = minTime;
+
+        let html = "";
+        for (let i = 0; i < topDrivers.length; i++) {
+          const d = topDrivers[i];
+          const laps = allLaps[i].filter(l => l.lap_duration);
+          if (!laps.length) continue;
+
+          const best = Math.min(...laps.map(l => l.lap_duration));
+          html += `<div class="card">
+            <h3>${acronyms.get(d.driver_number) || d.driver_number} — Best: ${best.toFixed(3)}s</h3>
+            <div class="lap-bar-container">`;
+
+          for (const lap of laps.slice(0, 30)) {
+            const pct = ((lap.lap_duration - fastest) / (maxTime - fastest));
+            const width = Math.max(5, 100 - pct * 80);
+            html += `<div class="lap-bar-row">
+              <span class="lap-bar-label">${lap.lap_number}</span>
+              <div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div>
+              <span class="lap-bar-time">${lap.lap_duration.toFixed(3)}</span>
+            </div>`;
+          }
+          html += "</div></div>";
+        }
+        panel.innerHTML = html || '<p class="status">No lap data</p>';
+      } catch (e) {
+        panel.innerHTML = `<p class="status error">Error: ${e.message}</p>`;
+      }
+    }
+
+    async function loadPositions(sk) {
+      const panel = document.getElementById("positions");
+      try {
+        const [drivers, positions] = await Promise.all([
+          f1("drivers", { session_key: sk }),
+          f1("position", { session_key: sk }),
+        ]);
+
+        if (!positions.length) { panel.innerHTML = '<p class="status">No position data</p>'; return; }
+
+        const acronyms = new Map(drivers.map(d => [d.driver_number, d.name_acronym]));
+        const colours = new Map(drivers.map(d => [d.driver_number, d.team_colour || "666"]));
+
+        // Sample positions at intervals
+        const dates = [...new Set(positions.map(p => p.date))].sort();
+        const step = Math.max(1, Math.floor(dates.length / 20));
+        const sampled = dates.filter((_, i) => i % step === 0 || i === dates.length - 1);
+
+        let html = '<div class="card"><h3>Position Changes (Top 10)</h3>';
+        for (const date of sampled) {
+          const atTime = positions
+            .filter(p => p.date === date)
+            .sort((a, b) => a.position - b.position)
+            .slice(0, 10);
+
+          const time = new Date(date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          const row = atTime.map(p => {
+            const acr = acronyms.get(p.driver_number) || p.driver_number;
+            const col = colours.get(p.driver_number);
+            return `<span style="color:#${col};font-weight:600;margin-right:0.4rem">${acr}</span>`;
+          }).join("");
+
+          html += `<div style="margin:0.3rem 0;font-size:0.8rem">
+            <span style="color:var(--muted);margin-right:0.5rem;font-family:monospace">${time}</span>${row}
+          </div>`;
+        }
+        html += "</div>";
+        panel.innerHTML = html;
+      } catch (e) {
+        panel.innerHTML = `<p class="status error">Error: ${e.message}</p>`;
+      }
+    }
+
+    async function loadWeather(sk) {
+      const panel = document.getElementById("weather");
+      try {
+        const weather = await f1("weather", { session_key: sk });
+        if (!weather.length) { panel.innerHTML = '<p class="status">No weather data</p>'; return; }
+
+        const latest = weather[weather.length - 1];
+        panel.innerHTML = `<div class="card">
+          <h3>Track Conditions</h3>
+          <div class="weather-grid">
+            <div class="weather-stat">
+              <div class="value">${latest.air_temperature ?? "-"}°</div>
+              <div class="label">Air Temp</div>
+            </div>
+            <div class="weather-stat">
+              <div class="value">${latest.track_temperature ?? "-"}°</div>
+              <div class="label">Track Temp</div>
+            </div>
+            <div class="weather-stat">
+              <div class="value">${latest.humidity ?? "-"}%</div>
+              <div class="label">Humidity</div>
+            </div>
+            <div class="weather-stat">
+              <div class="value">${latest.wind_speed ?? "-"}</div>
+              <div class="label">Wind (m/s)</div>
+            </div>
+            <div class="weather-stat">
+              <div class="value">${latest.wind_direction ?? "-"}°</div>
+              <div class="label">Wind Dir</div>
+            </div>
+            <div class="weather-stat">
+              <div class="value">${latest.rainfall ? "Yes" : "No"}</div>
+              <div class="label">Rain</div>
+            </div>
+            <div class="weather-stat">
+              <div class="value">${latest.pressure ?? "-"}</div>
+              <div class="label">Pressure (mbar)</div>
+            </div>
+          </div>
+        </div>`;
+      } catch (e) {
+        panel.innerHTML = `<p class="status error">Error: ${e.message}</p>`;
+      }
+    }
+
+    // Initial load
+    loadSessions();
+  </script>
+</body>
+</html>

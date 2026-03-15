@@ -1,0 +1,13 @@
+{
+  "name": "f1-playpen",
+  "version": "0.1.0",
+  "description": "Apps, visualisations, and games using OpenF1 API data",
+  "type": "module",
+  "scripts": {
+    "example:drivers": "node examples/list-drivers.js",
+    "example:laptimes": "node examples/lap-times.js",
+    "example:positions": "node examples/race-positions.js"
+  },
+  "keywords": ["f1", "formula1", "openf1", "racing", "data"],
+  "license": "MIT"
+}
