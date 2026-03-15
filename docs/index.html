@@ -147,6 +147,52 @@
 
     .lap-bar-time { font-family: "SF Mono", monospace; font-size: 0.75rem; color: var(--muted); }
 
+    .stint-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0.75rem 0 0.25rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding-bottom: 0.3rem;
+    }
+
+    .stint-header:first-child { margin-top: 0; }
+
+    .compound {
+      padding: 0.15rem 0.5rem;
+      border-radius: 3px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .compound-SOFT { background: #e53935; color: #fff; }
+    .compound-MEDIUM { background: #fdd835; color: #222; }
+    .compound-HARD { background: #eee; color: #222; }
+    .compound-INTERMEDIATE { background: #43a047; color: #fff; }
+    .compound-WET { background: #1e88e5; color: #fff; }
+
+    .best-lap-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.3rem 0;
+      font-size: 0.8rem;
+    }
+
+    .best-lap-row .label { color: var(--muted); font-style: italic; width: 2rem; text-align: right; }
+    .best-lap-row .time { font-family: "SF Mono", monospace; font-weight: 700; color: #ab47bc; }
+
+    .session-best {
+      font-family: "SF Mono", monospace;
+      font-weight: 700;
+      color: #ab47bc;
+      font-size: 0.95rem;
+    }
+
     .weather-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -176,23 +222,26 @@
   <main>
     <div class="controls">
       <select id="year"></select>
-      <select id="session"></select>
+      <select id="event"><option>Select year first</option></select>
+      <select id="session"><option>Select event first</option></select>
       <button id="load">Load</button>
-    </div>
-
-    <div class="tabs">
-      <button class="tab active" data-tab="drivers">Drivers</button>
-      <button class="tab" data-tab="laps">Lap Times</button>
-      <button class="tab" data-tab="positions">Positions</button>
-      <button class="tab" data-tab="weather">Weather</button>
     </div>
 
     <div id="loading">Loading...</div>
 
-    <div id="drivers" class="panel active"></div>
-    <div id="laps" class="panel"></div>
-    <div id="positions" class="panel"></div>
-    <div id="weather" class="panel"></div>
+    <div id="results" style="display:none">
+      <div class="tabs">
+        <button class="tab active" data-tab="drivers">Drivers</button>
+        <button class="tab" data-tab="laps">Lap Times</button>
+        <button class="tab" data-tab="positions">Positions</button>
+        <button class="tab" data-tab="weather">Weather</button>
+      </div>
+
+      <div id="drivers" class="panel active"></div>
+      <div id="laps" class="panel"></div>
+      <div id="positions" class="panel"></div>
+      <div id="weather" class="panel"></div>
+    </div>
   </main>
 
   <script>
@@ -212,6 +261,7 @@
 
     // --- Init ---
     const yearEl = document.getElementById("year");
+    const eventEl = document.getElementById("event");
     const sessionEl = document.getElementById("session");
     const loadBtn = document.getElementById("load");
     const loadingEl = document.getElementById("loading");
@@ -224,23 +274,47 @@
     let sessions = [];
 
     yearEl.addEventListener("change", loadSessions);
+    eventEl.addEventListener("change", populateSessions);
 
     async function loadSessions() {
-      sessionEl.innerHTML = '<option>Loading...</option>';
+      eventEl.innerHTML = '<option>Loading...</option>';
+      sessionEl.innerHTML = '<option>Select event first</option>';
       try {
         sessions = await f1("sessions", { year: yearEl.value });
-        // Show races and qualifying, most recent first
-        const interesting = sessions
-          .filter(s => ["Race", "Qualifying", "Sprint"].includes(s.session_type));
-        sessionEl.innerHTML = "";
-        for (const s of interesting) {
-          sessionEl.add(new Option(
-            `${s.country_name} — ${s.session_type}`,
-            s.session_key
-          ));
+        // Group finished sessions by meeting (event)
+        const now = new Date();
+        const finished = sessions.filter(s => s.date_end && new Date(s.date_end) < now);
+        const events = new Map();
+        for (const s of finished) {
+          if (!events.has(s.meeting_key)) {
+            events.set(s.meeting_key, {
+              meeting_key: s.meeting_key,
+              name: `${s.country_name} — ${s.circuit_short_name || ""}`,
+              sessions: [],
+            });
+          }
+          events.get(s.meeting_key).sessions.push(s);
+        }
+        eventEl.innerHTML = '<option value="">— Select event —</option>';
+        for (const [key, evt] of events) {
+          eventEl.add(new Option(evt.name, key));
         }
       } catch (e) {
-        sessionEl.innerHTML = `<option>Error loading sessions</option>`;
+        eventEl.innerHTML = `<option>Error loading events</option>`;
+      }
+    }
+
+    function populateSessions() {
+      const mk = eventEl.value;
+      sessionEl.innerHTML = "";
+      if (!mk) { sessionEl.innerHTML = '<option>Select event first</option>'; return; }
+      const evt = sessions.filter(s => String(s.meeting_key) === mk);
+      const now = new Date();
+      const finished = evt.filter(s => s.date_end && new Date(s.date_end) < now);
+      // Sort by date so sessions appear in weekend order
+      finished.sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
+      for (const s of finished) {
+        sessionEl.add(new Option(s.session_name || s.session_type, s.session_key));
       }
     }
 
@@ -255,9 +329,12 @@
     });
 
     // Load data
+    const resultsEl = document.getElementById("results");
+
     loadBtn.addEventListener("click", async () => {
       const sk = sessionEl.value;
       if (!sk) return;
+      resultsEl.style.display = "none";
       loadingEl.style.display = "block";
       try {
         // Fetch shared data once
@@ -271,8 +348,10 @@
         await loadWeather(sk);
       } catch (e) {
         console.error(e);
+      } finally {
+        loadingEl.style.display = "none";
+        resultsEl.style.display = "block";
       }
-      loadingEl.style.display = "none";
     });
 
     function renderDrivers(drivers, positions) {
@@ -299,11 +378,23 @@
       `).join("") + '</div>';
     }
 
+    function fmtTime(secs) {
+      if (!secs) return "-";
+      const mins = Math.floor(secs / 60);
+      const rem = secs - mins * 60;
+      return mins > 0
+        ? `${mins}:${rem.toFixed(3).padStart(6, "0")}`
+        : rem.toFixed(3);
+    }
+
     async function renderLaps(sk, drivers) {
       const panel = document.getElementById("laps");
       try {
         const acronyms = new Map(drivers.map(d => [d.driver_number, d.name_acronym]));
         const colours = new Map(drivers.map(d => [d.driver_number, d.team_colour || "666"]));
+
+        // Fetch stints once for all drivers
+        const stints = await f1("stints", { session_key: sk });
 
         const topDrivers = drivers.slice(0, 6);
         const allLaps = [];
@@ -315,7 +406,6 @@
         if (!allTimes.length) { panel.innerHTML = '<p class="status">No lap data</p>'; return; }
         const minTime = Math.min(...allTimes);
         const maxTime = Math.max(...allTimes);
-        const fastest = minTime;
 
         let html = "";
         for (let i = 0; i < topDrivers.length; i++) {
@@ -323,20 +413,59 @@
           const laps = allLaps[i].filter(l => l.lap_duration);
           if (!laps.length) continue;
 
-          const best = Math.min(...laps.map(l => l.lap_duration));
+          const sessionBest = Math.min(...laps.map(l => l.lap_duration));
+          const driverStints = stints
+            .filter(s => s.driver_number === d.driver_number)
+            .sort((a, b) => a.stint_number - b.stint_number);
+
           html += `<div class="card">
-            <h3>${acronyms.get(d.driver_number) || d.driver_number} — Best: ${best.toFixed(3)}s</h3>
+            <h3>${acronyms.get(d.driver_number) || d.driver_number}
+              <span class="session-best">${fmtTime(sessionBest)}</span></h3>
             <div class="lap-bar-container">`;
 
-          for (const lap of laps.slice(0, 30)) {
-            const pct = ((lap.lap_duration - fastest) / (maxTime - fastest));
-            const width = Math.max(5, 100 - pct * 80);
-            html += `<div class="lap-bar-row">
-              <span class="lap-bar-label">${lap.lap_number}</span>
-              <div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div>
-              <span class="lap-bar-time">${lap.lap_duration.toFixed(3)}</span>
-            </div>`;
+          if (driverStints.length) {
+            for (const stint of driverStints) {
+              const stintLaps = laps.filter(l =>
+                l.lap_number >= stint.lap_start && l.lap_number <= stint.lap_end
+              );
+              if (!stintLaps.length) continue;
+
+              const compound = stint.compound || "UNKNOWN";
+              const stintBest = Math.min(...stintLaps.map(l => l.lap_duration));
+
+              html += `<div class="stint-header">
+                <span class="compound compound-${compound}">${compound}</span>
+                Stint ${stint.stint_number} (Laps ${stint.lap_start}–${stint.lap_end})
+                · Age ${stint.tyre_age_at_start}
+              </div>`;
+              html += `<div class="best-lap-row">
+                <span class="label">Best</span>
+                <span class="time">${fmtTime(stintBest)}</span>
+              </div>`;
+
+              for (const lap of stintLaps) {
+                const pct = ((lap.lap_duration - minTime) / (maxTime - minTime));
+                const width = Math.max(5, 100 - pct * 80);
+                html += `<div class="lap-bar-row">
+                  <span class="lap-bar-label">${lap.lap_number}</span>
+                  <div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div>
+                  <span class="lap-bar-time">${fmtTime(lap.lap_duration)}</span>
+                </div>`;
+              }
+            }
+          } else {
+            // Fallback if no stint data
+            for (const lap of laps) {
+              const pct = ((lap.lap_duration - minTime) / (maxTime - minTime));
+              const width = Math.max(5, 100 - pct * 80);
+              html += `<div class="lap-bar-row">
+                <span class="lap-bar-label">${lap.lap_number}</span>
+                <div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div>
+                <span class="lap-bar-time">${fmtTime(lap.lap_duration)}</span>
+              </div>`;
+            }
           }
+
           html += "</div></div>";
         }
         panel.innerHTML = html || '<p class="status">No lap data</p>';
