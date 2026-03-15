@@ -95,10 +95,12 @@ def extract_track(session, rotation):
     # Downsample track outline to ~300 points
     n = min(300, len(x))
     indices = np.linspace(0, len(x) - 1, n, dtype=int)
-    return {
-        "x": np.round(x[indices], 1).tolist(),
-        "y": np.round(y[indices], 1).tolist(),
-    }
+    tx = np.round(x[indices], 1).tolist()
+    ty = np.round(y[indices], 1).tolist()
+    # Close the loop so the track joins up smoothly
+    tx.append(tx[0])
+    ty.append(ty[0])
+    return {"x": tx, "y": ty}
 
 
 def extract_corners(session, rotation):

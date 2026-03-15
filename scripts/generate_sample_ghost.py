@@ -272,8 +272,10 @@ def main():
     print("Generating Driver 2 telemetry (NOR)...")
     d2_tel = generate_telemetry(track_x, track_y, lap_time=89.685, speed_offset=-3)
 
-    # Track outline (downsampled)
+    # Track outline (downsampled, closed loop)
     outline_x, outline_y = interpolate_track(raw_x, raw_y, 300)
+    outline_x.append(outline_x[0])
+    outline_y.append(outline_y[0])
 
     result = {
         "session": {
