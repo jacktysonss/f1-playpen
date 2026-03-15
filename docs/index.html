@@ -198,12 +198,16 @@
   <script>
     const API = "https://api.openf1.org/v1";
 
+    const delay = ms => new Promise(r => setTimeout(r, ms));
+
     async function f1(endpoint, params = {}) {
       const url = new URL(`${API}/${endpoint}`);
       for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
       const res = await fetch(url);
       if (!res.ok) throw new Error(`${res.status}`);
-      return res.json();
+      const data = await res.json();
+      await delay(300);
+      return data;
     }
 
     // --- Init ---
@@ -256,9 +260,14 @@
       if (!sk) return;
       loadingEl.style.display = "block";
       try {
-        await loadDrivers(sk);
-        await loadLaps(sk);
-        await loadPositions(sk);
+        // Fetch shared data once
+        const drivers = await f1("drivers", { session_key: sk });
+        let positions = [];
+        try { positions = await f1("position", { session_key: sk }); } catch {}
+
+        renderDrivers(drivers, positions);
+        await renderLaps(sk, drivers);
+        renderPositions(drivers, positions);
         await loadWeather(sk);
       } catch (e) {
         console.error(e);
@@ -266,54 +275,42 @@
       loadingEl.style.display = "none";
     });
 
-    async function loadDrivers(sk) {
+    function renderDrivers(drivers, positions) {
       const panel = document.getElementById("drivers");
-      try {
-        const drivers = await f1("drivers", { session_key: sk });
-        if (!drivers.length) { panel.innerHTML = '<p class="status">No driver data</p>'; return; }
+      if (!drivers.length) { panel.innerHTML = '<p class="status">No driver data</p>'; return; }
 
-        // Try to get final positions
-        let positions = [];
-        try { positions = await f1("position", { session_key: sk }); } catch {}
+      const lastPos = new Map();
+      for (const p of positions) lastPos.set(p.driver_number, p.position);
 
-        // Get last position for each driver
-        const lastPos = new Map();
-        for (const p of positions) lastPos.set(p.driver_number, p.position);
+      const sorted = [...drivers].sort((a, b) =>
+        (lastPos.get(a.driver_number) ?? 99) - (lastPos.get(b.driver_number) ?? 99)
+      );
 
-        const sorted = [...drivers].sort((a, b) =>
-          (lastPos.get(a.driver_number) ?? 99) - (lastPos.get(b.driver_number) ?? 99)
-        );
-
-        panel.innerHTML = '<div class="card">' + sorted.map(d => `
-          <div class="driver-row">
-            <span class="pos">${lastPos.get(d.driver_number) ?? "-"}</span>
-            <span class="team-dot" style="background:#${d.team_colour || '666'}"></span>
-            <div class="driver-info">
-              <div class="driver-name">${d.full_name || d.first_name + " " + d.last_name}</div>
-              <div class="team-name">${d.team_name || ""}</div>
-            </div>
-            <span class="lap-time">#${d.driver_number}</span>
+      panel.innerHTML = '<div class="card">' + sorted.map(d => `
+        <div class="driver-row">
+          <span class="pos">${lastPos.get(d.driver_number) ?? "-"}</span>
+          <span class="team-dot" style="background:#${d.team_colour || '666'}"></span>
+          <div class="driver-info">
+            <div class="driver-name">${d.full_name || d.first_name + " " + d.last_name}</div>
+            <div class="team-name">${d.team_name || ""}</div>
           </div>
-        `).join("") + '</div>';
-      } catch (e) {
-        panel.innerHTML = `<p class="status error">Error: ${e.message}</p>`;
-      }
+          <span class="lap-time">#${d.driver_number}</span>
+        </div>
+      `).join("") + '</div>';
     }
 
-    async function loadLaps(sk) {
+    async function renderLaps(sk, drivers) {
       const panel = document.getElementById("laps");
       try {
-        const drivers = await f1("drivers", { session_key: sk });
         const acronyms = new Map(drivers.map(d => [d.driver_number, d.name_acronym]));
         const colours = new Map(drivers.map(d => [d.driver_number, d.team_colour || "666"]));
 
-        // Get laps for a few top drivers to keep it manageable
         const topDrivers = drivers.slice(0, 6);
-        const allLaps = await Promise.all(
-          topDrivers.map(d => f1("laps", { session_key: sk, driver_number: d.driver_number }))
-        );
+        const allLaps = [];
+        for (const d of topDrivers) {
+          allLaps.push(await f1("laps", { session_key: sk, driver_number: d.driver_number }));
+        }
 
-        // Find min/max lap times for scaling bars
         const allTimes = allLaps.flat().map(l => l.lap_duration).filter(Boolean);
         if (!allTimes.length) { panel.innerHTML = '<p class="status">No lap data</p>'; return; }
         const minTime = Math.min(...allTimes);
@@ -348,47 +345,37 @@
       }
     }
 
-    async function loadPositions(sk) {
+    function renderPositions(drivers, positions) {
       const panel = document.getElementById("positions");
-      try {
-        const [drivers, positions] = await Promise.all([
-          f1("drivers", { session_key: sk }),
-          f1("position", { session_key: sk }),
-        ]);
+      if (!positions.length) { panel.innerHTML = '<p class="status">No position data</p>'; return; }
 
-        if (!positions.length) { panel.innerHTML = '<p class="status">No position data</p>'; return; }
+      const acronyms = new Map(drivers.map(d => [d.driver_number, d.name_acronym]));
+      const colours = new Map(drivers.map(d => [d.driver_number, d.team_colour || "666"]));
 
-        const acronyms = new Map(drivers.map(d => [d.driver_number, d.name_acronym]));
-        const colours = new Map(drivers.map(d => [d.driver_number, d.team_colour || "666"]));
+      const dates = [...new Set(positions.map(p => p.date))].sort();
+      const step = Math.max(1, Math.floor(dates.length / 20));
+      const sampled = dates.filter((_, i) => i % step === 0 || i === dates.length - 1);
 
-        // Sample positions at intervals
-        const dates = [...new Set(positions.map(p => p.date))].sort();
-        const step = Math.max(1, Math.floor(dates.length / 20));
-        const sampled = dates.filter((_, i) => i % step === 0 || i === dates.length - 1);
+      let html = '<div class="card"><h3>Position Changes (Top 10)</h3>';
+      for (const date of sampled) {
+        const atTime = positions
+          .filter(p => p.date === date)
+          .sort((a, b) => a.position - b.position)
+          .slice(0, 10);
 
-        let html = '<div class="card"><h3>Position Changes (Top 10)</h3>';
-        for (const date of sampled) {
-          const atTime = positions
-            .filter(p => p.date === date)
-            .sort((a, b) => a.position - b.position)
-            .slice(0, 10);
+        const time = new Date(date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const row = atTime.map(p => {
+          const acr = acronyms.get(p.driver_number) || p.driver_number;
+          const col = colours.get(p.driver_number);
+          return `<span style="color:#${col};font-weight:600;margin-right:0.4rem">${acr}</span>`;
+        }).join("");
 
-          const time = new Date(date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-          const row = atTime.map(p => {
-            const acr = acronyms.get(p.driver_number) || p.driver_number;
-            const col = colours.get(p.driver_number);
-            return `<span style="color:#${col};font-weight:600;margin-right:0.4rem">${acr}</span>`;
-          }).join("");
-
-          html += `<div style="margin:0.3rem 0;font-size:0.8rem">
-            <span style="color:var(--muted);margin-right:0.5rem;font-family:monospace">${time}</span>${row}
-          </div>`;
-        }
-        html += "</div>";
-        panel.innerHTML = html;
-      } catch (e) {
-        panel.innerHTML = `<p class="status error">Error: ${e.message}</p>`;
+        html += `<div style="margin:0.3rem 0;font-size:0.8rem">
+          <span style="color:var(--muted);margin-right:0.5rem;font-family:monospace">${time}</span>${row}
+        </div>`;
       }
+      html += "</div>";
+      panel.innerHTML = html;
     }
 
     async function loadWeather(sk) {
