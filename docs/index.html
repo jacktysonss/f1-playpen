@@ -402,15 +402,23 @@
           allLaps.push(await f1("laps", { session_key: sk, driver_number: d.driver_number }));
         }
 
-        const allTimes = allLaps.flat().map(l => l.lap_duration).filter(Boolean);
-        if (!allTimes.length) { panel.innerHTML = '<p class="status">No lap data</p>'; return; }
-        const minTime = Math.min(...allTimes);
-        const maxTime = Math.max(...allTimes);
+        // Filter outlier laps (pit laps, red flags, formation laps, etc.)
+        // Use median + 1.5× IQR as upper bound
+        const rawTimes = allLaps.flat().map(l => l.lap_duration).filter(Boolean).sort((a, b) => a - b);
+        if (!rawTimes.length) { panel.innerHTML = '<p class="status">No lap data</p>'; return; }
+        const q1 = rawTimes[Math.floor(rawTimes.length * 0.25)];
+        const q3 = rawTimes[Math.floor(rawTimes.length * 0.75)];
+        const iqr = q3 - q1;
+        const lapCutoff = q3 + 1.5 * iqr;
+
+        const allTimes = rawTimes.filter(t => t <= lapCutoff);
+        const minTime = allTimes[0];
+        const maxTime = allTimes[allTimes.length - 1];
 
         let html = "";
         for (let i = 0; i < topDrivers.length; i++) {
           const d = topDrivers[i];
-          const laps = allLaps[i].filter(l => l.lap_duration);
+          const laps = allLaps[i].filter(l => l.lap_duration && l.lap_duration <= lapCutoff);
           if (!laps.length) continue;
 
           const sessionBest = Math.min(...laps.map(l => l.lap_duration));
