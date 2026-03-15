@@ -827,14 +827,23 @@
     const d2Done = elapsed >= data.driver2.lap_time;
 
     // Draw driver dots
-    const drawDriver = (driver, done) => {
-      const [px, py] = getDriverPos(driver, elapsed);
-      const [sx, sy] = toScreen(px, py);
-      const radius = Math.min(w, h) < 400 ? 10 : 8;
+    const radius = Math.min(w, h) < 400 ? 7 : 6;
 
+    // Get both positions to detect proximity
+    const [p1x, p1y] = getDriverPos(data.driver1, elapsed);
+    const [s1x, s1y] = toScreen(p1x, p1y);
+    const [p2x, p2y] = getDriverPos(data.driver2, elapsed);
+    const [s2x, s2y] = toScreen(p2x, p2y);
+    const dist = Math.hypot(s1x - s2x, s1y - s2y);
+
+    // When cars are close, push labels further apart
+    const baseLabelOffset = radius + 10;
+    const labelOffset = dist < 40 ? baseLabelOffset + (40 - dist) * 0.5 : baseLabelOffset;
+
+    const drawDriver = (driver, done, sx, sy, labelDir) => {
       // Glow
       ctx.beginPath();
-      ctx.arc(sx, sy, radius + 4, 0, Math.PI * 2);
+      ctx.arc(sx, sy, radius + 3, 0, Math.PI * 2);
       ctx.fillStyle = `#${driver.color}33`;
       ctx.fill();
 
@@ -844,21 +853,31 @@
       ctx.fillStyle = done ? `#${driver.color}88` : `#${driver.color}`;
       ctx.fill();
 
+      // Leader line from dot to label
+      const labelY = sy + labelDir * labelOffset;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy + labelDir * (radius + 1));
+      ctx.lineTo(sx, labelY + (-labelDir * 4));
+      ctx.strokeStyle = `#${driver.color}88`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
       // Label
-      ctx.font = `bold ${radius}px -apple-system, sans-serif`;
-      ctx.fillStyle = "#fff";
+      ctx.font = `bold ${radius + 2}px -apple-system, sans-serif`;
+      ctx.fillStyle = `#${driver.color}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(driver.code, sx, sy - radius - 8);
+      ctx.fillText(driver.code, sx, labelY);
     };
 
+    // Driver 1 label above (-1), driver 2 label below (+1)
     // Draw slower driver first (behind), faster on top
     if (data.driver1.lap_time <= data.driver2.lap_time) {
-      drawDriver(data.driver2, d2Done);
-      drawDriver(data.driver1, d1Done);
+      drawDriver(data.driver2, d2Done, s2x, s2y, +1);
+      drawDriver(data.driver1, d1Done, s1x, s1y, -1);
     } else {
-      drawDriver(data.driver1, d1Done);
-      drawDriver(data.driver2, d2Done);
+      drawDriver(data.driver1, d1Done, s1x, s1y, -1);
+      drawDriver(data.driver2, d2Done, s2x, s2y, +1);
     }
 
     // Update telemetry panels
