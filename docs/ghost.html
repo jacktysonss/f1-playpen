@@ -341,7 +341,10 @@
       z-index: 10;
     }
 
-    /* Mobile portrait: stack vertically with compact horizontal telemetry */
+    /* Pedals wrapper — no special styling in desktop/landscape */
+    .telem-pedals { display: contents; }
+
+    /* Mobile portrait: two-row compact telemetry */
     @media (max-width: 600px) and (orientation: portrait) {
       .vis-container {
         grid-template-columns: 1fr;
@@ -352,23 +355,21 @@
       .telem-panel.right { border-left: none; border-top: 1px solid var(--border); }
 
       .telem-panel {
-        display: grid;
-        grid-template-columns: auto 1fr repeat(4, auto);
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
         align-items: center;
-        gap: 0 0.5rem;
-        padding: 0.25rem 0.5rem;
+        gap: 0 0.6rem;
+        padding: 0.2rem 0.5rem;
       }
 
       .telem-panel .telem-driver {
-        width: auto;
-        text-align: left;
         margin-bottom: 0;
         font-size: 0.75rem;
       }
 
       .telem-panel .lap-time-display {
         font-size: 0.75rem;
-        text-align: left;
         margin-top: 0;
       }
 
@@ -376,17 +377,29 @@
       .telem-panel .telem-value { min-width: auto; font-size: 0.7rem; }
       .speed-bar-track { display: none; }
 
+      /* THR/BRK/DRS on a dedicated second row */
+      .telem-panel .telem-pedals {
+        display: flex;
+        width: 100%;
+        gap: 0.6rem;
+        align-items: center;
+      }
+
       .telem-panel .pedal-row {
-        gap: 0.15rem;
+        gap: 0.2rem;
         font-size: 0.65rem;
+        display: flex;
+        align-items: center;
       }
 
       .telem-panel .pedal-indicator {
-        width: 28px;
+        width: 40px;
         height: 6px;
       }
 
       .telem-panel .pedal-row .telem-label { min-width: auto !important; }
+
+      .telem-panel .telem-pedals .telem-row { font-size: 0.65rem; }
     }
 
     /* Mobile landscape: side panels */
@@ -595,6 +608,48 @@
     }
   }
 
+  // Resample a driver's telemetry to a uniform time grid
+  function resampleDriver(driver, dt) {
+    const tel = driver.telemetry;
+    const lapTime = driver.lap_time;
+    const numSteps = Math.ceil(lapTime / dt) + 1;
+    const keys = ["time", "x", "y", "speed", "throttle", "brake", "gear", "drs"];
+    const out = {};
+    for (const k of keys) out[k] = new Array(numSteps);
+
+    let srcIdx = 0;
+    for (let step = 0; step < numSteps; step++) {
+      const t = Math.min(step * dt, lapTime);
+      out.time[step] = t;
+
+      // Advance source index
+      while (srcIdx < tel.time.length - 2 && tel.time[srcIdx + 1] <= t) srcIdx++;
+
+      const i = srcIdx;
+      if (i >= tel.time.length - 1) {
+        // At the end — use last values
+        for (const k of keys) if (k !== "time") out[k][step] = tel[k][tel[k].length - 1];
+        continue;
+      }
+
+      const t0 = tel.time[i], t1 = tel.time[i + 1];
+      const frac = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
+
+      // Linearly interpolate continuous values
+      out.x[step] = tel.x[i] + (tel.x[i + 1] - tel.x[i]) * frac;
+      out.y[step] = tel.y[i] + (tel.y[i + 1] - tel.y[i]) * frac;
+      out.speed[step] = tel.speed[i] + (tel.speed[i + 1] - tel.speed[i]) * frac;
+      out.throttle[step] = tel.throttle[i] + (tel.throttle[i + 1] - tel.throttle[i]) * frac;
+      out.brake[step] = tel.brake[i] + (tel.brake[i + 1] - tel.brake[i]) * frac;
+
+      // Discrete values — use nearest
+      out.gear[step] = frac < 0.5 ? tel.gear[i] : tel.gear[i + 1];
+      out.drs[step] = frac < 0.5 ? tel.drs[i] : tel.drs[i + 1];
+    }
+
+    driver.telemetry = out;
+  }
+
   async function loadComparison(filename) {
     const listEl = document.getElementById("file-list");
     listEl.innerHTML = '<p class="loading-msg">Loading telemetry data...</p>';
@@ -603,6 +658,11 @@
       const res = await fetch(`data/ghost/${filename}`);
       if (!res.ok) throw new Error(`Failed to load ${filename}`);
       data = await res.json();
+
+      // Resample both drivers to a common uniform time grid (every 10ms)
+      const dt = 0.01;
+      resampleDriver(data.driver1, dt);
+      resampleDriver(data.driver2, dt);
 
       initVisualisation();
     } catch (e) {
@@ -691,9 +751,11 @@
       <div class="telem-row"><span class="telem-label">Speed</span><span class="telem-value" data-field="speed">—</span></div>
       <div class="speed-bar-track"><div class="speed-bar" data-field="speedbar" style="background:#${driver.color};width:0%"></div></div>
       <div class="telem-row"><span class="telem-label">Gear</span><span class="telem-value" data-field="gear">—</span></div>
-      <div class="pedal-row"><span class="telem-label" style="min-width:2rem">THR</span><div class="pedal-indicator" data-field="throttle"></div></div>
-      <div class="pedal-row"><span class="telem-label" style="min-width:2rem">BRK</span><div class="pedal-indicator" data-field="brake"></div></div>
-      <div class="telem-row"><span class="telem-label">DRS</span><span class="telem-value" data-field="drs">—</span></div>
+      <div class="telem-pedals">
+        <div class="pedal-row"><span class="telem-label" style="min-width:2rem">THR</span><div class="pedal-indicator" data-field="throttle"></div></div>
+        <div class="pedal-row"><span class="telem-label" style="min-width:2rem">BRK</span><div class="pedal-indicator" data-field="brake"></div></div>
+        <div class="telem-row"><span class="telem-label">DRS</span><span class="telem-value" data-field="drs">—</span></div>
+      </div>
     `;
 
     // Cache element references
@@ -716,14 +778,8 @@
     const tel = driver.telemetry;
     const clampedT = Math.min(t, driver.lap_time);
 
-    // Binary search for index
-    let lo = 0, hi = tel.time.length - 1;
-    while (lo < hi - 1) {
-      const mid = (lo + hi) >> 1;
-      if (tel.time[mid] <= clampedT) lo = mid;
-      else hi = mid;
-    }
-    const idx = lo;
+    // Direct index from uniform time grid
+    const idx = Math.min(Math.floor(clampedT / RESAMPLE_DT), tel.time.length - 1);
 
     const speed = tel.speed[idx];
     const gear = tel.gear[idx];
@@ -782,46 +838,24 @@
     ];
   }
 
-  // Catmull-Rom spline for smooth interpolation
-  function catmullRom(p0, p1, p2, p3, t) {
-    const t2 = t * t, t3 = t2 * t;
-    return 0.5 * (
-      (2 * p1) +
-      (-p0 + p2) * t +
-      (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-      (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-    );
-  }
+  // Uniform time grid step (must match resampleDriver dt)
+  const RESAMPLE_DT = 0.01;
 
   function getDriverPos(driver, t) {
     const tel = driver.telemetry;
     const clampedT = Math.min(t, driver.lap_time);
     const len = tel.time.length;
 
-    // Binary search for the interval
-    let lo = 0, hi = len - 1;
-    while (lo < hi - 1) {
-      const mid = (lo + hi) >> 1;
-      if (tel.time[mid] <= clampedT) lo = mid;
-      else hi = mid;
-    }
-    const i = lo;
+    // Direct index from uniform time grid
+    const exactIdx = clampedT / RESAMPLE_DT;
+    const i = Math.min(Math.floor(exactIdx), len - 2);
+    const frac = exactIdx - i;
 
-    // If at end, return last point
     if (i >= len - 1) return [tel.x[len - 1], tel.y[len - 1]];
 
-    // Fractional position within this segment
-    const t0 = tel.time[i];
-    const t1 = tel.time[i + 1];
-    const frac = t1 > t0 ? (clampedT - t0) / (t1 - t0) : 0;
-
-    // Catmull-Rom with clamped neighbor indices
-    const i0 = Math.max(0, i - 1);
-    const i3 = Math.min(len - 1, i + 2);
-
     return [
-      catmullRom(tel.x[i0], tel.x[i], tel.x[i + 1], tel.x[i3], frac),
-      catmullRom(tel.y[i0], tel.y[i], tel.y[i + 1], tel.y[i3], frac),
+      tel.x[i] + (tel.x[i + 1] - tel.x[i]) * frac,
+      tel.y[i] + (tel.y[i + 1] - tel.y[i]) * frac,
     ];
   }
 
@@ -959,7 +993,7 @@
     if (!playing) return;
 
     if (lastFrameTime === null) lastFrameTime = timestamp;
-    const dt = (timestamp - lastFrameTime) / 1000; // seconds
+    const dt = Math.min((timestamp - lastFrameTime) / 1000, 0.1); // cap at 100ms to avoid jumps
     lastFrameTime = timestamp;
 
     elapsed += dt * playbackSpeed;
