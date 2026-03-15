@@ -341,8 +341,8 @@
       z-index: 10;
     }
 
-    /* Mobile: stack vertically in portrait, use landscape grid */
-    @media (max-width: 600px) {
+    /* Mobile portrait: stack vertically with compact horizontal telemetry */
+    @media (max-width: 600px) and (orientation: portrait) {
       .vis-container {
         grid-template-columns: 1fr;
         grid-template-rows: auto auto 1fr auto auto;
@@ -352,17 +352,44 @@
       .telem-panel.right { border-left: none; border-top: 1px solid var(--border); }
 
       .telem-panel {
-        flex-direction: row;
-        flex-wrap: wrap;
-        justify-content: space-around;
-        padding: 0.3rem 0.5rem;
+        display: grid;
+        grid-template-columns: auto 1fr repeat(4, auto);
+        align-items: center;
+        gap: 0 0.5rem;
+        padding: 0.25rem 0.5rem;
       }
 
-      .telem-panel .telem-driver { width: 100%; text-align: center; margin-bottom: 0; }
-      .telem-row { width: auto; gap: 0.3rem; }
+      .telem-panel .telem-driver {
+        width: auto;
+        text-align: left;
+        margin-bottom: 0;
+        font-size: 0.75rem;
+      }
+
+      .telem-panel .lap-time-display {
+        font-size: 0.75rem;
+        text-align: left;
+        margin-top: 0;
+      }
+
+      .telem-panel .telem-row { gap: 0.2rem; font-size: 0.7rem; }
+      .telem-panel .telem-value { min-width: auto; font-size: 0.7rem; }
       .speed-bar-track { display: none; }
+
+      .telem-panel .pedal-row {
+        gap: 0.15rem;
+        font-size: 0.65rem;
+      }
+
+      .telem-panel .pedal-indicator {
+        width: 28px;
+        height: 6px;
+      }
+
+      .telem-panel .pedal-row .telem-label { min-width: auto !important; }
     }
 
+    /* Mobile landscape: side panels */
     @media (max-width: 600px) and (orientation: landscape) {
       .vis-container {
         grid-template-columns: 140px 1fr 140px;
@@ -653,6 +680,9 @@
     drawFrame();
   }
 
+  // Cache DOM refs for telemetry panels to avoid querySelector every frame
+  const telemCache = {};
+
   function buildTelemPanel(id, driver) {
     const el = document.getElementById(id);
     el.innerHTML = `
@@ -665,19 +695,35 @@
       <div class="pedal-row"><span class="telem-label" style="min-width:2rem">BRK</span><div class="pedal-indicator" data-field="brake"></div></div>
       <div class="telem-row"><span class="telem-label">DRS</span><span class="telem-value" data-field="drs">—</span></div>
     `;
+
+    // Cache element references
+    telemCache[id] = {
+      laptime: el.querySelector('[data-field="laptime"]'),
+      speed: el.querySelector('[data-field="speed"]'),
+      speedbar: el.querySelector('[data-field="speedbar"]'),
+      gear: el.querySelector('[data-field="gear"]'),
+      throttle: el.querySelector('[data-field="throttle"]'),
+      brake: el.querySelector('[data-field="brake"]'),
+      drs: el.querySelector('[data-field="drs"]'),
+    };
   }
 
-  function updateTelemPanel(id, driver, t) {
-    const el = document.getElementById(id);
-    const tel = driver.telemetry;
+  let lastTelemUpdate = 0;
 
-    // Find index by time (binary search-ish, but linear is fine for 500 pts)
-    let idx = 0;
+  function updateTelemPanel(id, driver, t) {
+    const c = telemCache[id];
+    if (!c) return;
+    const tel = driver.telemetry;
     const clampedT = Math.min(t, driver.lap_time);
-    for (let i = 1; i < tel.time.length; i++) {
-      if (tel.time[i] <= clampedT) idx = i;
-      else break;
+
+    // Binary search for index
+    let lo = 0, hi = tel.time.length - 1;
+    while (lo < hi - 1) {
+      const mid = (lo + hi) >> 1;
+      if (tel.time[mid] <= clampedT) lo = mid;
+      else hi = mid;
     }
+    const idx = lo;
 
     const speed = tel.speed[idx];
     const gear = tel.gear[idx];
@@ -685,19 +731,14 @@
     const brake = tel.brake[idx];
     const drs = tel.drs[idx];
 
-    el.querySelector('[data-field="laptime"]').textContent = fmtTime(clampedT);
-    el.querySelector('[data-field="speed"]').textContent = Math.round(speed) + " km/h";
-    el.querySelector('[data-field="speedbar"]').style.width = (speed / 360 * 100) + "%";
-    el.querySelector('[data-field="gear"]').textContent = gear;
-
-    const thrEl = el.querySelector('[data-field="throttle"]');
-    thrEl.className = "pedal-indicator" + (throttle > 50 ? " active-throttle" : "");
-
-    const brkEl = el.querySelector('[data-field="brake"]');
-    brkEl.className = "pedal-indicator" + (brake ? " active-brake" : "");
-
-    el.querySelector('[data-field="drs"]').textContent = drs > 0 ? "OPEN" : "—";
-    el.querySelector('[data-field="drs"]').style.color = drs > 0 ? "#3fb950" : "var(--muted)";
+    c.laptime.textContent = fmtTime(clampedT);
+    c.speed.textContent = Math.round(speed) + " km/h";
+    c.speedbar.style.width = (speed / 360 * 100) + "%";
+    c.gear.textContent = gear;
+    c.throttle.className = "pedal-indicator" + (throttle > 50 ? " active-throttle" : "");
+    c.brake.className = "pedal-indicator" + (brake ? " active-brake" : "");
+    c.drs.textContent = drs > 0 ? "OPEN" : "—";
+    c.drs.style.color = drs > 0 ? "#3fb950" : "var(--muted)";
   }
 
   // ---- Canvas rendering ----
@@ -741,28 +782,46 @@
     ];
   }
 
+  // Catmull-Rom spline for smooth interpolation
+  function catmullRom(p0, p1, p2, p3, t) {
+    const t2 = t * t, t3 = t2 * t;
+    return 0.5 * (
+      (2 * p1) +
+      (-p0 + p2) * t +
+      (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+      (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+    );
+  }
+
   function getDriverPos(driver, t) {
     const tel = driver.telemetry;
     const clampedT = Math.min(t, driver.lap_time);
+    const len = tel.time.length;
 
-    // Find surrounding indices
-    let i = 0;
-    for (let j = 1; j < tel.time.length; j++) {
-      if (tel.time[j] <= clampedT) i = j;
-      else break;
+    // Binary search for the interval
+    let lo = 0, hi = len - 1;
+    while (lo < hi - 1) {
+      const mid = (lo + hi) >> 1;
+      if (tel.time[mid] <= clampedT) lo = mid;
+      else hi = mid;
     }
+    const i = lo;
 
     // If at end, return last point
-    if (i >= tel.time.length - 1) return [tel.x[i], tel.y[i]];
+    if (i >= len - 1) return [tel.x[len - 1], tel.y[len - 1]];
 
-    // Linear interpolation between i and i+1
+    // Fractional position within this segment
     const t0 = tel.time[i];
     const t1 = tel.time[i + 1];
     const frac = t1 > t0 ? (clampedT - t0) / (t1 - t0) : 0;
 
+    // Catmull-Rom with clamped neighbor indices
+    const i0 = Math.max(0, i - 1);
+    const i3 = Math.min(len - 1, i + 2);
+
     return [
-      tel.x[i] + (tel.x[i + 1] - tel.x[i]) * frac,
-      tel.y[i] + (tel.y[i + 1] - tel.y[i]) * frac,
+      catmullRom(tel.x[i0], tel.x[i], tel.x[i + 1], tel.x[i3], frac),
+      catmullRom(tel.y[i0], tel.y[i], tel.y[i + 1], tel.y[i3], frac),
     ];
   }
 
@@ -880,14 +939,18 @@
       drawDriver(data.driver2, d2Done, s2x, s2y, +1);
     }
 
-    // Update telemetry panels
-    updateTelemPanel("telemLeft", data.driver1, elapsed);
-    updateTelemPanel("telemRight", data.driver2, elapsed);
+    // Throttle DOM updates to ~60ms to avoid layout thrashing
+    const now = performance.now();
+    if (now - lastTelemUpdate > 60 || !playing) {
+      lastTelemUpdate = now;
+      updateTelemPanel("telemLeft", data.driver1, elapsed);
+      updateTelemPanel("telemRight", data.driver2, elapsed);
 
-    // Update progress bar
-    const pct = totalTime > 0 ? (elapsed / totalTime) * 100 : 0;
-    document.getElementById("progressFill").style.width = pct + "%";
-    document.getElementById("timeLabel").textContent = fmtTime(elapsed);
+      // Update progress bar
+      const pct = totalTime > 0 ? (elapsed / totalTime) * 100 : 0;
+      document.getElementById("progressFill").style.width = pct + "%";
+      document.getElementById("timeLabel").textContent = fmtTime(elapsed);
+    }
   }
 
   // ---- Animation loop ----
