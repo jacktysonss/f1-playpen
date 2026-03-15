@@ -402,16 +402,15 @@
           allLaps.push(await f1("laps", { session_key: sk, driver_number: d.driver_number }));
         }
 
-        // Filter outlier laps (pit laps, red flags, formation laps, etc.)
-        // Use median + 1.5× IQR as upper bound
-        const rawTimes = allLaps.flat().map(l => l.lap_duration).filter(Boolean).sort((a, b) => a - b);
+        // Filter outlier laps (out/in laps, pit laps, red flags, etc.)
+        // Use 115% of the fastest lap as the cutoff — similar to F1's 107% rule
+        const rawTimes = allLaps.flat().map(l => l.lap_duration).filter(Boolean);
         if (!rawTimes.length) { panel.innerHTML = '<p class="status">No lap data</p>'; return; }
-        const q1 = rawTimes[Math.floor(rawTimes.length * 0.25)];
-        const q3 = rawTimes[Math.floor(rawTimes.length * 0.75)];
-        const iqr = q3 - q1;
-        const lapCutoff = q3 + 1.5 * iqr;
+        const fastestLap = Math.min(...rawTimes);
+        const lapCutoff = fastestLap * 1.15;
 
-        const allTimes = rawTimes.filter(t => t <= lapCutoff);
+        const allTimes = rawTimes.filter(t => t <= lapCutoff).sort((a, b) => a - b);
+        if (!allTimes.length) { panel.innerHTML = '<p class="status">No lap data</p>'; return; }
         const minTime = allTimes[0];
         const maxTime = allTimes[allTimes.length - 1];
 
@@ -452,8 +451,8 @@
               </div>`;
 
               for (const lap of stintLaps) {
-                const pct = ((lap.lap_duration - minTime) / (maxTime - minTime));
-                const width = Math.max(5, 100 - pct * 80);
+                const pct = maxTime === minTime ? 0 : (lap.lap_duration - minTime) / (maxTime - minTime);
+                const width = Math.max(10, 100 - pct * 90);
                 html += `<div class="lap-bar-row">
                   <span class="lap-bar-label">${lap.lap_number}</span>
                   <div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div>
@@ -464,8 +463,8 @@
           } else {
             // Fallback if no stint data
             for (const lap of laps) {
-              const pct = ((lap.lap_duration - minTime) / (maxTime - minTime));
-              const width = Math.max(5, 100 - pct * 80);
+              const pct = maxTime === minTime ? 0 : (lap.lap_duration - minTime) / (maxTime - minTime);
+              const width = Math.max(10, 100 - pct * 90);
               html += `<div class="lap-bar-row">
                 <span class="lap-bar-label">${lap.lap_number}</span>
                 <div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div>
