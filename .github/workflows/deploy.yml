@@ -31,7 +31,7 @@ on:
         default: 'NOR'
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -75,6 +75,15 @@ jobs:
             --session ${{ inputs.session }} \
             --driver1 ${{ inputs.driver1 }} \
             --driver2 ${{ inputs.driver2 }}
+
+      - name: Commit ghost data to repo
+        if: inputs.generate_ghost
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data/
+          git diff --cached --quiet || git commit -m "Add ghost data: ${{ inputs.driver1 }} vs ${{ inputs.driver2 }} — ${{ inputs.event }} ${{ inputs.year }} ${{ inputs.session }}"
+          git push
 
       - name: Build ghost manifest
         run: python scripts/build_manifest.py
