@@ -65,20 +65,37 @@ def generate_track():
                 points_x.append(round(x, 1))
                 points_y.append(round(y, 1))
 
-    # Close the track back to start with a sweeping return
-    # Add points closing back to (0, 0)
+    # Close the track back to start with a cubic Bezier that
+    # matches the exit direction of the last segment and the
+    # entry direction of the first segment for a smooth join.
     close_steps = 40
     start_x, start_y = points_x[0], points_y[0]
     end_x, end_y = points_x[-1], points_y[-1]
+
+    # Tangent at end of track (exit direction)
+    dx_end = points_x[-1] - points_x[-3]
+    dy_end = points_y[-1] - points_y[-3]
+    # Tangent at start of track (entry direction, reversed)
+    dx_start = points_x[0] - points_x[2]
+    dy_start = points_y[0] - points_y[2]
+
+    # Scale control arms proportional to the gap distance
+    gap = math.hypot(start_x - end_x, start_y - end_y)
+    arm = gap * 0.5
+    norm_end = math.hypot(dx_end, dy_end) or 1
+    norm_start = math.hypot(dx_start, dy_start) or 1
+
+    # Bezier control points
+    cp1x = end_x + dx_end / norm_end * arm
+    cp1y = end_y + dy_end / norm_end * arm
+    cp2x = start_x + dx_start / norm_start * arm
+    cp2y = start_y + dy_start / norm_start * arm
+
     for i in range(1, close_steps + 1):
         t = i / close_steps
-        # Cubic ease for smooth closing
-        t_smooth = t * t * (3 - 2 * t)
-        cx = end_x + (start_x - end_x) * t_smooth
-        cy = end_y + (start_y - end_y) * t_smooth
-        # Add slight curve
-        cx += math.sin(t * math.pi) * 200
-        cy += math.sin(t * math.pi) * -100
+        u = 1 - t
+        cx = u**3 * end_x + 3 * u**2 * t * cp1x + 3 * u * t**2 * cp2x + t**3 * start_x
+        cy = u**3 * end_y + 3 * u**2 * t * cp1y + 3 * u * t**2 * cp2y + t**3 * start_y
         points_x.append(round(cx, 1))
         points_y.append(round(cy, 1))
 
