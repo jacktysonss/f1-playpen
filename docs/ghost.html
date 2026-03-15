@@ -608,6 +608,48 @@
     }
   }
 
+  // Resample a driver's telemetry to a uniform time grid
+  function resampleDriver(driver, dt) {
+    const tel = driver.telemetry;
+    const lapTime = driver.lap_time;
+    const numSteps = Math.ceil(lapTime / dt) + 1;
+    const keys = ["time", "x", "y", "speed", "throttle", "brake", "gear", "drs"];
+    const out = {};
+    for (const k of keys) out[k] = new Array(numSteps);
+
+    let srcIdx = 0;
+    for (let step = 0; step < numSteps; step++) {
+      const t = Math.min(step * dt, lapTime);
+      out.time[step] = t;
+
+      // Advance source index
+      while (srcIdx < tel.time.length - 2 && tel.time[srcIdx + 1] <= t) srcIdx++;
+
+      const i = srcIdx;
+      if (i >= tel.time.length - 1) {
+        // At the end — use last values
+        for (const k of keys) if (k !== "time") out[k][step] = tel[k][tel[k].length - 1];
+        continue;
+      }
+
+      const t0 = tel.time[i], t1 = tel.time[i + 1];
+      const frac = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
+
+      // Linearly interpolate continuous values
+      out.x[step] = tel.x[i] + (tel.x[i + 1] - tel.x[i]) * frac;
+      out.y[step] = tel.y[i] + (tel.y[i + 1] - tel.y[i]) * frac;
+      out.speed[step] = tel.speed[i] + (tel.speed[i + 1] - tel.speed[i]) * frac;
+      out.throttle[step] = tel.throttle[i] + (tel.throttle[i + 1] - tel.throttle[i]) * frac;
+      out.brake[step] = tel.brake[i] + (tel.brake[i + 1] - tel.brake[i]) * frac;
+
+      // Discrete values — use nearest
+      out.gear[step] = frac < 0.5 ? tel.gear[i] : tel.gear[i + 1];
+      out.drs[step] = frac < 0.5 ? tel.drs[i] : tel.drs[i + 1];
+    }
+
+    driver.telemetry = out;
+  }
+
   async function loadComparison(filename) {
     const listEl = document.getElementById("file-list");
     listEl.innerHTML = '<p class="loading-msg">Loading telemetry data...</p>';
@@ -616,6 +658,11 @@
       const res = await fetch(`data/ghost/${filename}`);
       if (!res.ok) throw new Error(`Failed to load ${filename}`);
       data = await res.json();
+
+      // Resample both drivers to a common uniform time grid (every 10ms)
+      const dt = 0.01;
+      resampleDriver(data.driver1, dt);
+      resampleDriver(data.driver2, dt);
 
       initVisualisation();
     } catch (e) {
@@ -731,14 +778,8 @@
     const tel = driver.telemetry;
     const clampedT = Math.min(t, driver.lap_time);
 
-    // Binary search for index
-    let lo = 0, hi = tel.time.length - 1;
-    while (lo < hi - 1) {
-      const mid = (lo + hi) >> 1;
-      if (tel.time[mid] <= clampedT) lo = mid;
-      else hi = mid;
-    }
-    const idx = lo;
+    // Direct index from uniform time grid
+    const idx = Math.min(Math.floor(clampedT / RESAMPLE_DT), tel.time.length - 1);
 
     const speed = tel.speed[idx];
     const gear = tel.gear[idx];
@@ -797,46 +838,24 @@
     ];
   }
 
-  // Catmull-Rom spline for smooth interpolation
-  function catmullRom(p0, p1, p2, p3, t) {
-    const t2 = t * t, t3 = t2 * t;
-    return 0.5 * (
-      (2 * p1) +
-      (-p0 + p2) * t +
-      (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-      (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-    );
-  }
+  // Uniform time grid step (must match resampleDriver dt)
+  const RESAMPLE_DT = 0.01;
 
   function getDriverPos(driver, t) {
     const tel = driver.telemetry;
     const clampedT = Math.min(t, driver.lap_time);
     const len = tel.time.length;
 
-    // Binary search for the interval
-    let lo = 0, hi = len - 1;
-    while (lo < hi - 1) {
-      const mid = (lo + hi) >> 1;
-      if (tel.time[mid] <= clampedT) lo = mid;
-      else hi = mid;
-    }
-    const i = lo;
+    // Direct index from uniform time grid
+    const exactIdx = clampedT / RESAMPLE_DT;
+    const i = Math.min(Math.floor(exactIdx), len - 2);
+    const frac = exactIdx - i;
 
-    // If at end, return last point
     if (i >= len - 1) return [tel.x[len - 1], tel.y[len - 1]];
 
-    // Fractional position within this segment
-    const t0 = tel.time[i];
-    const t1 = tel.time[i + 1];
-    const frac = t1 > t0 ? (clampedT - t0) / (t1 - t0) : 0;
-
-    // Catmull-Rom with clamped neighbor indices
-    const i0 = Math.max(0, i - 1);
-    const i3 = Math.min(len - 1, i + 2);
-
     return [
-      catmullRom(tel.x[i0], tel.x[i], tel.x[i + 1], tel.x[i3], frac),
-      catmullRom(tel.y[i0], tel.y[i], tel.y[i + 1], tel.y[i3], frac),
+      tel.x[i] + (tel.x[i + 1] - tel.x[i]) * frac,
+      tel.y[i] + (tel.y[i + 1] - tel.y[i]) * frac,
     ];
   }
 
@@ -974,7 +993,7 @@
     if (!playing) return;
 
     if (lastFrameTime === null) lastFrameTime = timestamp;
-    const dt = (timestamp - lastFrameTime) / 1000; // seconds
+    const dt = Math.min((timestamp - lastFrameTime) / 1000, 0.1); // cap at 100ms to avoid jumps
     lastFrameTime = timestamp;
 
     elapsed += dt * playbackSpeed;
