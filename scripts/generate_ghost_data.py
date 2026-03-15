@@ -61,8 +61,8 @@ def extract_driver_lap(session, driver_code, rotation):
     # Lap time in seconds
     lap_time = fastest["LapTime"].total_seconds()
 
-    # Downsample to ~500 points for reasonable JSON size
-    n = min(500, len(x))
+    # Downsample to ~2000 points for smooth animation while keeping JSON reasonable
+    n = min(2000, len(x))
     indices = np.linspace(0, len(x) - 1, n, dtype=int)
 
     return {

@@ -13,7 +13,7 @@ import random
 
 random.seed(42)
 
-NUM_POINTS = 500
+NUM_POINTS = 2000
 
 # ---------------------------------------------------------------------------
 # Real Bahrain International Circuit centre-line coordinates (metres).
@@ -218,8 +218,27 @@ CORNERS = [
 ]
 
 
+def upsample_track(x_pts, y_pts, target_n):
+    """Linearly interpolate track coordinates to target_n points."""
+    n = len(x_pts)
+    if n >= target_n:
+        return list(x_pts), list(y_pts)
+    out_x, out_y = [], []
+    for i in range(target_n):
+        t = i / target_n * n
+        idx = int(t)
+        frac = t - idx
+        j = min(idx, n - 1)
+        k = (j + 1) % n
+        out_x.append(x_pts[j] + (x_pts[k] - x_pts[j]) * frac)
+        out_y.append(y_pts[j] + (y_pts[k] - y_pts[j]) * frac)
+    return out_x, out_y
+
+
 def generate_telemetry(track_x, track_y, lap_time, speed_offset=0):
     """Generate synthetic telemetry for a lap using real track coordinates."""
+    # Upsample to NUM_POINTS for smoother animation
+    track_x, track_y = upsample_track(track_x, track_y, NUM_POINTS)
     n = len(track_x)
     times = []
     speeds = []
