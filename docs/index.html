@@ -136,16 +136,17 @@
       font-size: 0.8rem;
     }
 
-    .lap-bar-label { width: 2rem; text-align: right; color: var(--muted); }
+    .lap-bar-label { width: 2rem; text-align: right; color: var(--muted); flex-shrink: 0; }
+
+    .lap-bar-track { flex: 1; min-width: 0; }
 
     .lap-bar {
       height: 18px;
       border-radius: 3px;
       min-width: 4px;
-      transition: width 0.3s;
     }
 
-    .lap-bar-time { font-family: "SF Mono", monospace; font-size: 0.75rem; color: var(--muted); }
+    .lap-bar-time { font-family: "SF Mono", monospace; font-size: 0.75rem; color: var(--muted); flex-shrink: 0; }
 
     .stint-header {
       display: flex;
@@ -451,11 +452,10 @@
               </div>`;
 
               for (const lap of stintLaps) {
-                const pct = maxTime === minTime ? 0 : (lap.lap_duration - minTime) / (maxTime - minTime);
-                const width = Math.max(10, 100 - pct * 90);
+                const width = maxTime === minTime ? 100 : Math.max(15, (lap.lap_duration / maxTime) * 100);
                 html += `<div class="lap-bar-row">
                   <span class="lap-bar-label">${lap.lap_number}</span>
-                  <div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div>
+                  <div class="lap-bar-track"><div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div></div>
                   <span class="lap-bar-time">${fmtTime(lap.lap_duration)}</span>
                 </div>`;
               }
@@ -463,11 +463,10 @@
           } else {
             // Fallback if no stint data
             for (const lap of laps) {
-              const pct = maxTime === minTime ? 0 : (lap.lap_duration - minTime) / (maxTime - minTime);
-              const width = Math.max(10, 100 - pct * 90);
+              const width = maxTime === minTime ? 100 : Math.max(15, (lap.lap_duration / maxTime) * 100);
               html += `<div class="lap-bar-row">
                 <span class="lap-bar-label">${lap.lap_number}</span>
-                <div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div>
+                <div class="lap-bar-track"><div class="lap-bar" style="width:${width}%;background:#${colours.get(d.driver_number)}"></div></div>
                 <span class="lap-bar-time">${fmtTime(lap.lap_duration)}</span>
               </div>`;
             }
