@@ -9,6 +9,26 @@ on:
         description: 'Generate ghost car data (slow, downloads F1 telemetry)'
         type: boolean
         default: false
+      year:
+        description: 'Year (e.g. 2024)'
+        type: string
+        default: '2024'
+      event:
+        description: 'Event name (e.g. Bahrain, Monaco, Silverstone)'
+        type: string
+        default: 'Bahrain'
+      session:
+        description: 'Session type (Q = Qualifying, R = Race, FP1/FP2/FP3)'
+        type: string
+        default: 'Q'
+      driver1:
+        description: 'Driver 1 code (e.g. VER, HAM, NOR)'
+        type: string
+        default: 'VER'
+      driver2:
+        description: 'Driver 2 code (e.g. NOR, LEC, HAM)'
+        type: string
+        default: 'NOR'
 
 permissions:
   contents: read
@@ -50,8 +70,11 @@ jobs:
         if: inputs.generate_ghost
         run: |
           python scripts/generate_ghost_data.py \
-            --year 2024 --event Bahrain --session Q \
-            --driver1 VER --driver2 NOR
+            --year ${{ inputs.year }} \
+            --event "${{ inputs.event }}" \
+            --session ${{ inputs.session }} \
+            --driver1 ${{ inputs.driver1 }} \
+            --driver2 ${{ inputs.driver2 }}
 
       - name: Build ghost manifest
         run: python scripts/build_manifest.py
