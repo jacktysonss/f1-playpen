@@ -227,19 +227,21 @@
       <button id="load">Load</button>
     </div>
 
-    <div class="tabs">
-      <button class="tab active" data-tab="drivers">Drivers</button>
-      <button class="tab" data-tab="laps">Lap Times</button>
-      <button class="tab" data-tab="positions">Positions</button>
-      <button class="tab" data-tab="weather">Weather</button>
-    </div>
-
     <div id="loading">Loading...</div>
 
-    <div id="drivers" class="panel active"></div>
-    <div id="laps" class="panel"></div>
-    <div id="positions" class="panel"></div>
-    <div id="weather" class="panel"></div>
+    <div id="results" style="display:none">
+      <div class="tabs">
+        <button class="tab active" data-tab="drivers">Drivers</button>
+        <button class="tab" data-tab="laps">Lap Times</button>
+        <button class="tab" data-tab="positions">Positions</button>
+        <button class="tab" data-tab="weather">Weather</button>
+      </div>
+
+      <div id="drivers" class="panel active"></div>
+      <div id="laps" class="panel"></div>
+      <div id="positions" class="panel"></div>
+      <div id="weather" class="panel"></div>
+    </div>
   </main>
 
   <script>
@@ -327,9 +329,12 @@
     });
 
     // Load data
+    const resultsEl = document.getElementById("results");
+
     loadBtn.addEventListener("click", async () => {
       const sk = sessionEl.value;
       if (!sk) return;
+      resultsEl.style.display = "none";
       loadingEl.style.display = "block";
       try {
         // Fetch shared data once
@@ -343,8 +348,10 @@
         await loadWeather(sk);
       } catch (e) {
         console.error(e);
+      } finally {
+        loadingEl.style.display = "none";
+        resultsEl.style.display = "block";
       }
-      loadingEl.style.display = "none";
     });
 
     function renderDrivers(drivers, positions) {
