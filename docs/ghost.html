@@ -383,6 +383,7 @@
         width: 100%;
         gap: 0.6rem;
         align-items: center;
+        justify-content: center;
       }
 
       .telem-panel .pedal-row {
@@ -608,43 +609,94 @@
     }
   }
 
-  // Resample a driver's telemetry to a uniform time grid
+  // Resample a driver's telemetry to a uniform time grid using
+  // distance-based position interpolation for smooth visual motion.
+  //
+  // The original data has ~500 points. Linear time→position interpolation
+  // creates constant-velocity segments with abrupt speed jumps at boundaries.
+  // Instead, we:
+  //   1. Interpolate SPEED smoothly over time
+  //   2. Integrate speed to get cumulative distance at each time step
+  //   3. Map distance → x,y via arc-length parameterisation of the track
+  // This ensures the car moves at the speed the telemetry says, smoothly.
   function resampleDriver(driver, dt) {
     const tel = driver.telemetry;
     const lapTime = driver.lap_time;
+    const n = tel.time.length;
     const numSteps = Math.ceil(lapTime / dt) + 1;
+
+    // --- Step 1: cumulative arc-length along original waypoints ---
+    const arcLen = new Float64Array(n);
+    for (let i = 1; i < n; i++) {
+      const dx = tel.x[i] - tel.x[i - 1];
+      const dy = tel.y[i] - tel.y[i - 1];
+      arcLen[i] = arcLen[i - 1] + Math.sqrt(dx * dx + dy * dy);
+    }
+    const totalArc = arcLen[n - 1];
+
+    // --- Step 2: for each uniform time step, interpolate telemetry and integrate distance ---
     const keys = ["time", "x", "y", "speed", "throttle", "brake", "gear", "drs"];
     const out = {};
     for (const k of keys) out[k] = new Array(numSteps);
 
+    const distances = new Float64Array(numSteps);
     let srcIdx = 0;
+    let cumulDist = 0;
+
     for (let step = 0; step < numSteps; step++) {
       const t = Math.min(step * dt, lapTime);
       out.time[step] = t;
 
       // Advance source index
-      while (srcIdx < tel.time.length - 2 && tel.time[srcIdx + 1] <= t) srcIdx++;
-
+      while (srcIdx < n - 2 && tel.time[srcIdx + 1] <= t) srcIdx++;
       const i = srcIdx;
-      if (i >= tel.time.length - 1) {
-        // At the end — use last values
-        for (const k of keys) if (k !== "time") out[k][step] = tel[k][tel[k].length - 1];
+
+      if (i >= n - 1) {
+        out.speed[step] = tel.speed[n - 1];
+        out.throttle[step] = tel.throttle[n - 1];
+        out.brake[step] = tel.brake[n - 1];
+        out.gear[step] = tel.gear[n - 1];
+        out.drs[step] = tel.drs[n - 1];
+        distances[step] = totalArc;
         continue;
       }
 
       const t0 = tel.time[i], t1 = tel.time[i + 1];
       const frac = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
 
-      // Linearly interpolate continuous values
-      out.x[step] = tel.x[i] + (tel.x[i + 1] - tel.x[i]) * frac;
-      out.y[step] = tel.y[i] + (tel.y[i + 1] - tel.y[i]) * frac;
-      out.speed[step] = tel.speed[i] + (tel.speed[i + 1] - tel.speed[i]) * frac;
+      // Smoothly interpolated speed
+      const speed = tel.speed[i] + (tel.speed[i + 1] - tel.speed[i]) * frac;
+      out.speed[step] = speed;
       out.throttle[step] = tel.throttle[i] + (tel.throttle[i + 1] - tel.throttle[i]) * frac;
-      out.brake[step] = tel.brake[i] + (tel.brake[i + 1] - tel.brake[i]) * frac;
-
-      // Discrete values — use nearest
+      out.brake[step] = frac < 0.5 ? tel.brake[i] : tel.brake[i + 1];
       out.gear[step] = frac < 0.5 ? tel.gear[i] : tel.gear[i + 1];
       out.drs[step] = frac < 0.5 ? tel.drs[i] : tel.drs[i + 1];
+
+      // Integrate distance: speed (km/h) → m/s, multiply by dt
+      if (step > 0) {
+        cumulDist += (speed / 3.6) * dt;
+      }
+      distances[step] = cumulDist;
+    }
+
+    // Scale distances to match total arc-length (corrects for speed/distance mismatch)
+    const rawTotal = distances[numSteps - 1] || 1;
+    const distScale = totalArc / rawTotal;
+    for (let s = 0; s < numSteps; s++) distances[s] *= distScale;
+
+    // --- Step 3: map distance → x,y along the track ---
+    let arcIdx = 0;
+    for (let step = 0; step < numSteps; step++) {
+      const d = Math.min(distances[step], totalArc);
+
+      // Advance arc-length index
+      while (arcIdx < n - 2 && arcLen[arcIdx + 1] <= d) arcIdx++;
+      const j = arcIdx;
+      const d0 = arcLen[j], d1 = arcLen[j + 1];
+      const dfrac = d1 > d0 ? (d - d0) / (d1 - d0) : 0;
+
+      out.x[step] = tel.x[j] + (tel.x[j + 1] - tel.x[j]) * dfrac;
+      out.y[step] = tel.y[j] + (tel.y[j + 1] - tel.y[j]) * dfrac;
     }
 
     driver.telemetry = out;
