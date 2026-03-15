@@ -3,9 +3,35 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      generate_ghost:
+        description: 'Generate ghost car data (slow, downloads F1 telemetry)'
+        type: boolean
+        default: false
+      year:
+        description: 'Year (e.g. 2024)'
+        type: string
+        default: '2024'
+      event:
+        description: 'Event name (e.g. Bahrain, Monaco, Silverstone)'
+        type: string
+        default: 'Bahrain'
+      session:
+        description: 'Session type (Q = Qualifying, R = Race, FP1/FP2/FP3)'
+        type: string
+        default: 'Q'
+      driver1:
+        description: 'Driver 1 code (e.g. VER, HAM, NOR)'
+        type: string
+        default: 'VER'
+      driver2:
+        description: 'Driver 2 code (e.g. NOR, LEC, HAM)'
+        type: string
+        default: 'NOR'
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -21,6 +47,46 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Python
+        if: inputs.generate_ghost
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install FastF1
+        if: inputs.generate_ghost
+        run: pip install -r requirements.txt
+
+      - name: Cache FastF1 data
+        if: inputs.generate_ghost
+        uses: actions/cache@v4
+        with:
+          path: .f1cache
+          key: f1cache-${{ github.sha }}
+          restore-keys: f1cache-
+
+      - name: Generate ghost car data
+        if: inputs.generate_ghost
+        run: |
+          python scripts/generate_ghost_data.py \
+            --year ${{ inputs.year }} \
+            --event "${{ inputs.event }}" \
+            --session ${{ inputs.session }} \
+            --driver1 ${{ inputs.driver1 }} \
+            --driver2 ${{ inputs.driver2 }}
+
+      - name: Commit ghost data to repo
+        if: inputs.generate_ghost
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data/
+          git diff --cached --quiet || git commit -m "Add ghost data: ${{ inputs.driver1 }} vs ${{ inputs.driver2 }} — ${{ inputs.event }} ${{ inputs.year }} ${{ inputs.session }}"
+          git push
+
+      - name: Build ghost manifest
+        run: python scripts/build_manifest.py
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
